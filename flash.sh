@@ -1,0 +1,1 @@
+avrdude -patmega328p -carduino -P/dev/ttyACM1 -b115200 -D -Uflash:w:target/avr-atmega328p/release/aqua.elf:e
