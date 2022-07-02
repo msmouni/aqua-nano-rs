@@ -80,7 +80,7 @@ fn main() -> ! {
 
     // Digital pin 13 is also connected to an onboard LED marked "L"
     // let mut led = pins.d13.into_output();
-    let mut led = pins.d10.into_output();
+    let mut led = pins.d13.into_output();
     led.set_low();
 
     millis_init(&dp.TC0);
@@ -101,7 +101,7 @@ fn main() -> ! {
     let mut pin_en = pins.d8.into_output();
     pin_en.set_high();
     let mut is_pin_en_high = true;
-    let enable_time_ms = 8 * 60 * 60 * 1_000; // 8h
+    let enable_time_ms = 7 * 60 * 60 * 1_000; // 7h
 
     let day_ms = 24 * 60 * 60 * 1_000 - 1_000; // 24h (-1s to restart)
 
