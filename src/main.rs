@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(abi_avr_interrupt)]
 
+mod stepper;
 mod timer;
 
 use panic_halt as _;
