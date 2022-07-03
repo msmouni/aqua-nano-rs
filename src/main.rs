@@ -6,6 +6,7 @@ mod stepper;
 mod timer;
 
 use panic_halt as _;
+use stepper::{AngleSpeed, RotationAngleSpeed, Stepper};
 use timer::{millis, millis_init};
 
 #[arduino_hal::entry]
@@ -19,6 +20,15 @@ fn main() -> ! {
     // let mut led = pins.d13.into_output();
     let mut led = pins.d13.into_output();
     led.set_low();
+
+    // Stepper motor
+    let mut stepper_motor = Stepper::new(
+        pins.d8.into_output(),
+        pins.d9.into_output(),
+        pins.d10.into_output(),
+        pins.d11.into_output(),
+        stepper::StepType::Step8,
+    );
 
     millis_init(&dp.TC0);
 
@@ -35,7 +45,7 @@ fn main() -> ! {
     let mut t_led_off = t;
     let mut is_led_off = false;
 
-    let mut pin_en = pins.d8.into_output();
+    let mut pin_en = pins.d7.into_output();
     pin_en.set_high();
     let mut is_pin_en_high = true;
     let enable_time_ms = 7 * 60 * 60 * 1_000; // 7h
@@ -45,7 +55,30 @@ fn main() -> ! {
     let mut start_loop = true;
     let mut t_start = millis();
 
+    // for _i in 0..4096 {
+    //     stepper_motor.step(RotationDirection::Clockwise);
+
+    //     arduino_hal::delay_us(1_000);
+    // }
+
+    // for _i in 0..4096 {
+    //     stepper_motor.step(RotationDirection::AntiClockwise);
+
+    //     arduino_hal::delay_us(2_000);
+    // }
+
+    //init
+    stepper_motor.rotate_by_angle(RotationAngleSpeed::AntiClockwise(AngleSpeed::new(
+        30.0, 25.0,
+    )));
+    arduino_hal::delay_ms(1_000);
+
     loop {
+        stepper_motor.rotate_by_angle(RotationAngleSpeed::Clockwise(AngleSpeed::new(22.5, 50.0)));
+        arduino_hal::delay_ms(2_000);
+    }
+
+    /*loop {
         t = millis();
         if start_loop {
             t_toggle = t;
@@ -91,5 +124,5 @@ fn main() -> ! {
         }
 
         // ufmt::uwriteln!(&mut serial, "Hello : {:?}", led_toggle_count).void_unwrap();
-    }
+    }*/
 }
