@@ -3,6 +3,7 @@
 #![feature(abi_avr_interrupt)]
 
 mod timer;
+mod timer_v2;
 
 use panic_halt as _;
 use timer::{millis, millis_init};
@@ -43,6 +44,13 @@ fn main() -> ! {
 
     let mut start_loop = true;
     let mut t_start = millis();
+
+    // let _ = timer_v2::CtcTimer::new(
+    //     dp.TC0,
+    //     16_000_000,
+    //     timer_v2::Prescaler::Prescaler64,
+    //     5_000_000,
+    // );
 
     loop {
         t = millis();
