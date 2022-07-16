@@ -53,14 +53,14 @@ pub fn millis_init(tc0: &arduino_hal::pac::TC0) {
     });
 }
 
-#[avr_device::interrupt(atmega328p)]
-fn TIMER0_COMPA() {
-    avr_device::interrupt::free(|cs| {
-        let counter_cell = MILLIS_COUNTER.borrow(cs);
-        let counter = counter_cell.get();
-        counter_cell.set(counter + MILLIS_INCREMENT);
-    })
-}
+// #[avr_device::interrupt(atmega328p)]
+// fn TIMER0_COMPA() {
+//     avr_device::interrupt::free(|cs| {
+//         let counter_cell = MILLIS_COUNTER.borrow(cs);
+//         let counter = counter_cell.get();
+//         counter_cell.set(counter + MILLIS_INCREMENT);
+//     })
+// }
 
 pub fn millis() -> u32 {
     avr_device::interrupt::free(|cs| MILLIS_COUNTER.borrow(cs).get())

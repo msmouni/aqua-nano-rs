@@ -4,6 +4,74 @@ use core::cell::Cell;
 
 static OVER_FLOW_COUNTER: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
 
+#[derive(Debug, Clone, Default, PartialEq, PartialOrd)]
+pub struct Time {
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
+    milli_second: u32,
+    micro_second: u32,
+}
+impl Time {
+    fn add(&mut self, other: &Self) {
+        self.day += other.day;
+        self.hour += other.hour;
+        self.minute += other.minute;
+        self.second += other.second;
+        self.milli_second += other.milli_second;
+        self.micro_second += other.micro_second;
+    }
+    fn sub(&self, other: &Self) -> Self {
+        Self {
+            day: self.day - other.day,
+            hour: self.hour - other.hour,
+            minute: self.minute - other.minute,
+            second: self.second - other.second,
+            milli_second: self.milli_second - other.milli_second,
+            micro_second: self.micro_second - other.micro_second,
+        }
+    }
+    pub fn compute(&mut self, elapsed_micros: u32) {
+        let elapsed_millis = elapsed_micros / 1_000;
+
+        let micro_second = elapsed_micros - (elapsed_millis * 1_000);
+
+        let elapsed_sec = elapsed_millis / 1_000;
+
+        let milli_second = elapsed_millis - (elapsed_sec * 1_000);
+
+        let elapsed_min = elapsed_sec / 60;
+
+        let second = elapsed_sec - (elapsed_min * 60);
+
+        let elapsed_hours = elapsed_min / 60;
+
+        let minute = elapsed_min - (elapsed_hours * 60);
+
+        let day = elapsed_hours / 24;
+
+        let hour = elapsed_hours - (day * 24);
+
+        self.add(&Self {
+            day,
+            hour,
+            minute,
+            second,
+            milli_second,
+            micro_second,
+        })
+    }
+
+    pub fn elapsed(&self, new_time: &Self) -> Option<Self> {
+        if self < new_time {
+            Some(new_time.sub(self))
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum Prescaler {
     Prescaler1 = 1,
@@ -27,6 +95,7 @@ pub enum Prescaler {
 pub struct CtcTimer<const SYS_CLK_HZ: u32, const PRESCALER: u32, const OF_COUNT: u8> {
     timer_counter: TC0,
     over_flow_period_us: u32,
+    time: Time,
 }
 impl<const SYS_CLK_MHZ: u32, const PRESCALER: u32, const OF_COUNT: u8>
     CtcTimer<SYS_CLK_MHZ, PRESCALER, OF_COUNT>
@@ -50,6 +119,7 @@ impl<const SYS_CLK_MHZ: u32, const PRESCALER: u32, const OF_COUNT: u8>
         Self {
             timer_counter,
             over_flow_period_us,
+            time: Time::default(),
         }
     }
 
@@ -89,6 +159,23 @@ impl<const SYS_CLK_MHZ: u32, const PRESCALER: u32, const OF_COUNT: u8>
     pub fn millis(&self) -> u32 {
         self.micros() / 1_000
     }
+
+    pub fn get_time(&mut self) -> Time {
+        let elapsed_micros = self.over_flow_period_us
+            * avr_device::interrupt::free(|cs| {
+                let borrowed_ovflw_counter = OVER_FLOW_COUNTER.borrow(cs);
+                let counter = borrowed_ovflw_counter.get();
+
+                // Reset counter
+                borrowed_ovflw_counter.set(0);
+
+                counter
+            });
+
+        self.time.compute(elapsed_micros);
+
+        self.time.clone()
+    }
 }
 
 #[avr_device::interrupt(atmega328p)]
@@ -104,6 +191,7 @@ fn TIMER0_COMPA() {
 pub struct FastPwmTimer<const SYS_CLK_HZ: u32, const PRESCALER: u32> {
     timer_counter: TC0,
     presc_clk_period_us: u32,
+    time: Time,
 }
 impl<const SYS_CLK_MHZ: u32, const PRESCALER: u32> FastPwmTimer<SYS_CLK_MHZ, PRESCALER> {
     const _PRESCALER_TEST: () = assert!(
@@ -119,6 +207,7 @@ impl<const SYS_CLK_MHZ: u32, const PRESCALER: u32> FastPwmTimer<SYS_CLK_MHZ, PRE
         Self {
             timer_counter,
             presc_clk_period_us,
+            time: Time::default(),
         }
     }
 
@@ -144,17 +233,34 @@ impl<const SYS_CLK_MHZ: u32, const PRESCALER: u32> FastPwmTimer<SYS_CLK_MHZ, PRE
             OVER_FLOW_COUNTER.borrow(cs).set(0);
         });
     }
-    pub fn micros(&self) -> u32 {
-        let presc_clk_period_count = avr_device::interrupt::free(|cs| {
-            let ovflow_count = OVER_FLOW_COUNTER.borrow(cs).get();
-            ovflow_count * 256 + (self.timer_counter.tcnt0.read().bits() as u32)
+    // pub fn micros(&self) -> u32 {
+    //     let presc_clk_period_count = avr_device::interrupt::free(|cs| {
+    //         let ovflow_count = OVER_FLOW_COUNTER.borrow(cs).get();
+    //         ovflow_count * 256 + (self.timer_counter.tcnt0.read().bits() as u32)
+    //     });
+
+    //     self.presc_clk_period_us * presc_clk_period_count
+    // }
+
+    // pub fn millis(&self) -> u32 {
+    //     self.micros() / 1_000
+    // }
+
+    pub fn get_time(&mut self) -> Time {
+        let elapsed_micros = avr_device::interrupt::free(|cs| {
+            let borrowed_ovflw_counter = OVER_FLOW_COUNTER.borrow(cs);
+            let counter = borrowed_ovflw_counter.get();
+
+            // Reset counter
+            borrowed_ovflw_counter.set(0);
+
+            (counter * 256 + (self.timer_counter.tcnt0.read().bits() as u32))
+                * self.presc_clk_period_us
         });
 
-        self.presc_clk_period_us * presc_clk_period_count
-    }
+        self.time.compute(elapsed_micros);
 
-    pub fn millis(&self) -> u32 {
-        self.micros() / 1_000
+        self.time.clone()
     }
 }
 
