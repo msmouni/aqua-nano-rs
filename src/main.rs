@@ -9,7 +9,10 @@ use stepper::{AngleSpeed, RotationAngleSpeed, Stepper};
 mod time;
 
 use panic_halt as _;
-use time::sys_timer::{CtcTimer, SysTimer};
+use time::{
+    sys_timer::{CtcTimer, SysTimer},
+    timer::Timer,
+};
 
 #[arduino_hal::entry]
 fn main() -> ! {
@@ -24,10 +27,10 @@ fn main() -> ! {
 
     // Stepper motor
     let mut stepper_motor = Stepper::new(
+        pins.d7.into_output(),
         pins.d8.into_output(),
         pins.d9.into_output(),
         pins.d10.into_output(),
-        pins.d11.into_output(),
         stepper::StepType::Step8,
     );
 
@@ -38,102 +41,72 @@ fn main() -> ! {
     // Enable interrupts globally
     unsafe { avr_device::interrupt::enable() };
 
-    let mut t = sys_timer.millis();
-
-    let d_toggle = 100; //millis_s
-    let mut t_toggle = t;
     let mut led_toggle_count = 0;
+    let mut led_toggle_timer = Timer::new(100_000);
+    let mut led_off_timer = Timer::new(800_000);
 
-    let d_led_off = 800;
-    let mut t_led_off = t;
-    let mut is_led_off = false;
+    let mut light_pin = pins.d5.into_output();
+    light_pin.set_high();
+    let mut light_timer = Timer::new(7 * 60 * 60 * 1_000 * 1_000); // 7h
 
-    let mut pin_en = pins.d7.into_output();
-    pin_en.set_high();
-    let mut is_pin_en_high = true;
-    let enable_time_ms = 7 * 60 * 60 * 1_000; // 7h
+    let mut day_timer = Timer::new(24 * 60 * 60 * 1_000 * 1_000); // 24h
 
-    let day_ms = 24 * 60 * 60 * 1_000; // 24h
-
-    let mut start_loop = true;
-    // let mut t_start = millis();
-
-    // for _i in 0..4096 {
-    //     stepper_motor.step(RotationDirection::Clockwise);
-
-    //     arduino_hal::delay_us(1_000);
-    // }
-
-    // for _i in 0..4096 {
-    //     stepper_motor.step(RotationDirection::AntiClockwise);
-
-    //     arduino_hal::delay_us(2_000);
-    // }
-
-    //init
+    // init Stepper motor
     stepper_motor.rotate_by_angle(RotationAngleSpeed::AntiClockwise(AngleSpeed::new(
         30.0, 25.0,
     )));
-    arduino_hal::delay_ms(1_000);
-    // let _ = timer_v2::CtcTimer::new(
-    //     dp.TC0,
-    //     16_000_000,
-    //     timer_v2::Prescaler::Prescaler64,
-    //     5_000_000,
-    // );
+    sys_timer.delay_micros(1_000_000); // 1s
 
     loop {
-        stepper_motor.rotate_by_angle(RotationAngleSpeed::Clockwise(AngleSpeed::new(22.5, 50.0)));
-        arduino_hal::delay_ms(2_000);
-    }
+        let t = sys_timer.micros();
+        if !day_timer.has_started() {
+            day_timer.start(t);
 
-    /*loop {
-        t = millis();
-    let mut t_start = t;
-
-    loop {
-        t = sys_timer.millis();
-        if start_loop {
-            t_toggle = t;
             led_toggle_count = 0;
+            led_off_timer.start(t);
 
-            t_led_off = t;
-            is_led_off = false;
-
-            pin_en.set_high();
-            is_pin_en_high = true;
-            t_start = t;
-
-            start_loop = false;
+            light_pin.set_high();
+            stepper_motor
+                .rotate_by_angle(RotationAngleSpeed::Clockwise(AngleSpeed::new(22.5, 50.0)));
+            light_timer.start(t);
         } else {
             if led_toggle_count == 4 {
-                t_led_off = t;
                 led_toggle_count = 0;
-                is_led_off = true;
+                led_toggle_timer.stop();
+                led_off_timer.start(t);
             }
 
-            if (t.wrapping_sub(t_led_off) > d_led_off) && is_led_off {
-                is_led_off = false;
+            if let Ok(has_expired) = led_off_timer.has_expired(t) {
+                if has_expired {
+                    led_off_timer.stop();
+                    led_toggle_timer.start(t);
+                }
             }
 
-            if (t.wrapping_sub(t_toggle) > d_toggle) && !is_led_off {
-                led.toggle();
-                led_toggle_count += 1;
-                t_toggle = t;
+            if let Ok(has_expired) = led_toggle_timer.has_expired(t) {
+                if has_expired {
+                    led.toggle();
+                    led_toggle_count += 1;
+                    led_toggle_timer.start(t);
+                }
             }
 
-            if (t.wrapping_sub(t_start) >= enable_time_ms) && is_pin_en_high {
-                pin_en.set_low();
-                is_pin_en_high = false;
+            if let Ok(has_expired) = light_timer.has_expired(t) {
+                if has_expired {
+                    light_pin.set_low();
+                    light_timer.stop();
+                }
             }
 
-            if t.wrapping_sub(t_start) >= day_ms {
-                sys_timer.reset_time();
+            if let Ok(has_expired) = day_timer.has_expired(t) {
+                if has_expired {
+                    day_timer.stop();
 
-                start_loop = true;
+                    sys_timer.reset_time();
+                }
             }
         }
 
-        // ufmt::uwriteln!(&mut serial, "Hello : {:?}", led_toggle_count).void_unwrap();
-    }*/
+        // ufmt::uwriteln!(&mut serial, "Hello : {:?}", led_toggle_count).unwrap();
+    }
 }

@@ -74,8 +74,8 @@ impl<const SYS_CLK_MHZ: u32, const PRESCALER: u32, const OF_COUNT: u8> ImplTimer
         reset_time()
     }
 
-    fn micros(&self) -> u32 {
-        self.over_flow_period_us
+    fn micros(&self) -> u64 {
+        (self.over_flow_period_us as u64)
             * avr_device::interrupt::free(|cs| OVER_FLOW_COUNTER.borrow(cs).get())
     }
 }

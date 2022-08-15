@@ -48,13 +48,13 @@ impl<const SYS_CLK_MHZ: u32, const PRESCALER: u32> ImplTimer
         // Reset the global counter
         reset_time()
     }
-    fn micros(&self) -> u32 {
+    fn micros(&self) -> u64 {
         let presc_clk_period_count = avr_device::interrupt::free(|cs| {
             let ovflow_count = OVER_FLOW_COUNTER.borrow(cs).get();
-            ovflow_count * 256 + (self.timer_counter.tcnt0.read().bits() as u32)
+            ovflow_count * 256 + (self.timer_counter.tcnt0.read().bits() as u64)
         });
 
-        self.presc_clk_period_us * presc_clk_period_count
+        (self.presc_clk_period_us as u64) * presc_clk_period_count
     }
 }
 

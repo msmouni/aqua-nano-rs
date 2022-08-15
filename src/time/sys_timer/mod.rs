@@ -7,7 +7,7 @@ use avr_device::interrupt::Mutex;
 use core::cell::Cell;
 pub use {ctc::CtcTimer, fast_pwm::FastPwmTimer};
 
-static OVER_FLOW_COUNTER: Mutex<Cell<u32>> = Mutex::new(Cell::new(0));
+static OVER_FLOW_COUNTER: Mutex<Cell<u64>> = Mutex::new(Cell::new(0));
 
 // #[derive(Clone)]
 // pub enum Prescaler {
@@ -29,7 +29,7 @@ pub trait ImplTimer {
 
     fn init(&mut self);
 
-    fn micros(&self) -> u32;
+    fn micros(&self) -> u64;
 }
 
 pub struct SysTimer<WhichTimer: ImplTimer> {
@@ -47,11 +47,13 @@ impl<WhichTimer: ImplTimer> SysTimer<WhichTimer> {
         self.sys_timer.init()
     }
 
-    pub fn micros(&self) -> u32 {
+    #[allow(dead_code)]
+    pub fn micros(&self) -> u64 {
         self.sys_timer.micros()
     }
 
-    pub fn millis(&self) -> u32 {
+    #[allow(dead_code)]
+    pub fn millis(&self) -> u64 {
         self.micros() / 1_000
     }
 
@@ -63,7 +65,7 @@ impl<WhichTimer: ImplTimer> SysTimer<WhichTimer> {
     }
 
     #[allow(dead_code)]
-    pub fn delay_micros(&self, delay_us: u32) {
+    pub fn delay_micros(&self, delay_us: u64) {
         let mut t = self.micros();
 
         let t_start = t;

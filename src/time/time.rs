@@ -28,13 +28,13 @@ impl Time {
             micro_second: self.micro_second - other.micro_second,
         }
     }
-    pub fn new(elapsed_micros: u32) -> Self {
+    pub fn new(elapsed_micros: u64) -> Self {
         let mut time = Self::default();
         time.compute(elapsed_micros);
 
         time
     }
-    pub fn compute(&mut self, elapsed_micros: u32) {
+    pub fn compute(&mut self, elapsed_micros: u64) {
         let elapsed_millis = elapsed_micros / 1_000;
 
         let micro_second = elapsed_micros - (elapsed_millis * 1_000);
@@ -56,12 +56,12 @@ impl Time {
         let hour = elapsed_hours - (day * 24);
 
         self.add(&Self {
-            day,
-            hour,
-            minute,
-            second,
-            milli_second,
-            micro_second,
+            day: day as u32,
+            hour: hour as u32,
+            minute: minute as u32,
+            second: second as u32,
+            milli_second: milli_second as u32,
+            micro_second: micro_second as u32,
         })
     }
 
