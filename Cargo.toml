@@ -23,7 +23,10 @@ embedded-hal = "0.2"
 pwm-pca9685 = "0.3"
 arduino-hal={path="avr-hal/arduino-hal/",features=["arduino-nano"]}
 avr-device = "0.3"
-either={version = "1.6.1",default-features = false}
+either = {version = "1.6.1",default-features = false}
+avr-hal-generic={ path = "avr-hal/avr-hal-generic/"}
+# libm = {version = "0.2", default-features = false}
+micromath = "2.0"
 
 
 
