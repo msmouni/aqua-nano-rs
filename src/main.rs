@@ -4,6 +4,7 @@
 
 mod stepper;
 mod timer;
+mod timer_v2;
 
 use panic_halt as _;
 use stepper::{AngleSpeed, RotationAngleSpeed, Stepper};
@@ -72,6 +73,12 @@ fn main() -> ! {
         30.0, 25.0,
     )));
     arduino_hal::delay_ms(1_000);
+    // let _ = timer_v2::CtcTimer::new(
+    //     dp.TC0,
+    //     16_000_000,
+    //     timer_v2::Prescaler::Prescaler64,
+    //     5_000_000,
+    // );
 
     loop {
         stepper_motor.rotate_by_angle(RotationAngleSpeed::Clockwise(AngleSpeed::new(22.5, 50.0)));
