@@ -26,5 +26,6 @@ jobs:
             toolchain: nightly-2022-07-10
             override: true
             components: rustfmt, clippy
+    - uses: bazhenov/action-avr-make@v1.0
     - name: Build
       run: ./compile.sh
