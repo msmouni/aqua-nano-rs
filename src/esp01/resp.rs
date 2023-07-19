@@ -1,3 +1,4 @@
+use super::clients::{ClientsMessages, MAX_CLIENT_MSGS, MAX_CLIENT_NB};
 use crate::{serial::UsartRxBuffer, tools::buffer::BufferU8};
 
 #[derive(Debug, Clone, Copy)]
@@ -7,9 +8,10 @@ pub enum EspResp {
     StaConnected,
     StaDisconnected,
     StaGotIp,
-    ClientConnected,
-    ClientDisconnected,
-    ClientMsg,
+    ClientConnected(u8),
+    ClientDisconnected(u8),
+    ClientMsg(u8),
+    MsgSent,
     Error,
     Fail,
 }
@@ -18,6 +20,7 @@ pub enum EspResp {
 pub struct EspRespHandler<const RESP_SZ: usize> {
     resp_buff: BufferU8<RESP_SZ>,
     usart_rx_buff: UsartRxBuffer,
+    clients_msgs: ClientsMessages<RESP_SZ, MAX_CLIENT_MSGS, MAX_CLIENT_NB>,
 }
 
 impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
@@ -31,6 +34,7 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
     const CONNECTED_CLIENT: &'static [u8] = b",CONNECT\r\n";
     const DISCONNECTED_CLIENT: &'static [u8] = b",CLOSED\r\n";
     const CLIENT_MSG: &'static [u8] = b"+IPD,";
+    const MSG_SENT: &'static [u8] = b"SEND OK\r\n";
 
     pub fn get_resp_str(&self) -> Option<&str> {
         core::str::from_utf8(&self.resp_buff.get_buff()).ok()
@@ -68,11 +72,59 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
         } else if resp_buff.ends_with(Self::FAIL) {
             Some(EspResp::Fail)
         } else if resp_buff.ends_with(Self::CONNECTED_CLIENT) {
-            Some(EspResp::ClientConnected)
+            /*
+            0,CONNECT
+            1,CONNECT
+            */
+            if let Some(clt_id) = resp_buff.split(|b| *b == b',').next() {
+                let client_id = get_u8_from_slice(clt_id);
+                self.clients_msgs.add_client(client_id);
+                Some(EspResp::ClientConnected(client_id))
+            } else {
+                None
+            }
         } else if resp_buff.ends_with(Self::DISCONNECTED_CLIENT) {
-            Some(EspResp::ClientDisconnected)
+            /*
+            0,CLOSED
+            1,CLOSED
+            */
+            if let Some(clt_id) = resp_buff.split(|b| *b == b',').next() {
+                let client_id = get_u8_from_slice(clt_id);
+                self.clients_msgs.remove_client(client_id);
+                Some(EspResp::ClientDisconnected(client_id))
+            } else {
+                None
+            }
         } else if resp_buff.starts_with(Self::CLIENT_MSG) {
-            Some(EspResp::ClientMsg)
+            /*
+            +IPD,0,19:Hello from client 1
+            +IPD,1,19:Hello from client 2
+            */
+
+            // TODO: Handle Too Long Messages
+            let mut rsp_splt = resp_buff.split(|b| *b == b',');
+            if let Some(ipd) = rsp_splt.next() {
+                if let Some(clt_id) = rsp_splt.next() {
+                    if let Some(client_msg_len) = rsp_splt.next() {
+                        let mut msg_len_splt = client_msg_len.split(|b| *b == b':');
+
+                        if let Some(msg_len) = rsp_splt.next() {
+                            if let Some(msg_data) = rsp_splt.next() {
+                                if msg_data.len() == get_u8_from_slice(msg_len) as usize {
+                                    let client_id = get_u8_from_slice(clt_id);
+
+                                    self.clients_msgs.add_client_msg(client_id, msg_data);
+                                    return Some(EspResp::ClientMsg(client_id));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            None
+        } else if resp_buff.ends_with(Self::MSG_SENT) {
+            Some(EspResp::MsgSent)
         } else if resp_buff.ends_with(Self::STA_CONNECTED) {
             Some(EspResp::StaConnected)
         } else if resp_buff.ends_with(Self::STA_DISCONNECTED) {
@@ -82,5 +134,20 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
         } else {
             None
         }
+    }
+
+    pub fn get_client_next_msg(&mut self, client_id: u8) -> Option<[u8; RESP_SZ]> {
+        self.clients_msgs.get_client_next_msg(client_id)
+    }
+}
+
+fn get_u8_from_slice(id_slice: &[u8]) -> u8 {
+    let id_len = id_slice.len();
+    if id_len == 1 {
+        id_slice[0]
+    } else if id_len == 2 {
+        id_slice[0] * 10 + id_slice[1]
+    } else {
+        (id_slice[0] * 100 + id_slice[1] * 10 + id_slice[2]) as u8
     }
 }

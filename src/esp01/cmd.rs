@@ -81,22 +81,20 @@ impl EspCmdHandler {
         if let Some(t_sent) = self.t_cmd_sent {
             if t_us.wrapping_sub(t_sent) > Self::CMD_RESP_TIMEOUT_US {
                 self.t_cmd_sent = None;
-            } else {
-                if let Some(resp) = response_handler.poll() {
-                    match resp {
-                        EspResp::Ok => {
+            } else if let Some(resp) = response_handler.poll() {
+                match resp {
+                    EspResp::Ok => {
+                        return true;
+                    }
+                    EspResp::Ready => {
+                        if check_on_is_ready {
                             return true;
                         }
-                        EspResp::Ready => {
-                            if check_on_is_ready {
-                                return true;
-                            }
-                        }
-                        EspResp::Error | EspResp::Fail => {
-                            self.t_cmd_sent = None;
-                        }
-                        _ => {}
                     }
+                    EspResp::Error | EspResp::Fail => {
+                        self.t_cmd_sent = None;
+                    }
+                    _ => {}
                 }
             }
         } else {

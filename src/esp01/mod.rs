@@ -1,3 +1,4 @@
+mod clients;
 mod cmd;
 mod ip;
 mod resp;
@@ -6,7 +7,8 @@ mod state;
 mod time;
 mod wifi;
 
-use self::cmd::EspCmd;
+use self::{clients::MAX_CLIENT_NB, cmd::EspCmd};
+use arrayvec::ArrayVec;
 pub use ip::{EspIp, EspIpConfig};
 pub use resp::{EspResp, EspRespHandler};
 pub use serial::EspSerial;
@@ -24,6 +26,7 @@ pub struct EspWifiHandler<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
     config: EspWifiConfig<'h>,
     sta_connected: bool,
     sta_got_ip: bool,
+    connected_client: ArrayVec<u8, MAX_CLIENT_NB>,
 }
 
 impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
@@ -37,6 +40,7 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
             config,
             sta_connected: false,
             sta_got_ip: false,
+            connected_client: ArrayVec::new(),
         }
     }
 
@@ -55,28 +59,26 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
                 if let Some(t_sent) = t_cmd_sent {
                     if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
                         *t_cmd_sent = None;
-                    } else {
-                        if let Some(resp) = self.response_handler.poll() {
-                            match resp {
-                                EspResp::Ok => {
-                                    self.state = EspState::WaitReady {
-                                        t_start_wait: timer.now_us(),
-                                    };
-                                    return true;
-                                }
-                                EspResp::Ready => {
-                                    // Note: When Reset the Esp-01 sends too many bytes at once, so the "OK" resp could be overwritten
-                                    self.state = EspState::ConfigWifiMode {
-                                        t_cmd_sent: None,
-                                        cmd: EspCmd::WifiMode(self.config.get_mode()),
-                                    };
-                                    return true;
-                                }
-                                EspResp::Error | EspResp::Fail => {
-                                    *t_cmd_sent = None;
-                                }
-                                _ => {}
+                    } else if let Some(resp) = self.response_handler.poll() {
+                        match resp {
+                            EspResp::Ok => {
+                                self.state = EspState::WaitReady {
+                                    t_start_wait: timer.now_us(),
+                                };
+                                return true;
                             }
+                            EspResp::Ready => {
+                                // Note: When Reset the Esp-01 sends too many bytes at once, so the "OK" resp could be overwritten
+                                self.state = EspState::ConfigWifiMode {
+                                    t_cmd_sent: None,
+                                    cmd: EspCmd::WifiMode(self.config.get_mode()),
+                                };
+                                return true;
+                            }
+                            EspResp::Error | EspResp::Fail => {
+                                *t_cmd_sent = None;
+                            }
+                            _ => {}
                         }
                     }
                 } else {
@@ -93,24 +95,22 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
                         t_cmd_sent: None,
                         cmd: EspCmd::Reset,
                     };
-                } else {
-                    if let Some(resp) = self.response_handler.poll() {
-                        match resp {
-                            EspResp::Ready => {
-                                self.state = EspState::ConfigWifiMode {
-                                    t_cmd_sent: None,
-                                    cmd: EspCmd::WifiMode(self.config.get_mode()),
-                                };
-                                return true;
-                            }
-                            EspResp::Error | EspResp::Fail => {
-                                self.state = EspState::Reset {
-                                    t_cmd_sent: None,
-                                    cmd: EspCmd::Reset,
-                                };
-                            }
-                            _ => {}
+                } else if let Some(resp) = self.response_handler.poll() {
+                    match resp {
+                        EspResp::Ready => {
+                            self.state = EspState::ConfigWifiMode {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::WifiMode(self.config.get_mode()),
+                            };
+                            return true;
                         }
+                        EspResp::Error | EspResp::Fail => {
+                            self.state = EspState::Reset {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::Reset,
+                            };
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -595,7 +595,35 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
                     return true;
                 }
             }
-            EspState::Ready => {}
+            EspState::Ready => {
+                if let Some(resp) = self.response_handler.poll() {
+                    match resp {
+                        EspResp::ClientConnected(client_id) => {
+                            self.connected_client.push(client_id)
+                        }
+                        EspResp::ClientDisconnected(client_id) => {
+                            if let Ok(client_id) = self
+                                .connected_client
+                                .binary_search_by(|clt_id| clt_id.cmp(&client_id))
+                            {
+                                self.connected_client.pop_at(client_id);
+                            }
+                        }
+                        EspResp::ClientMsg(client_id) => {
+                            if let Some(client_msg) =
+                                self.response_handler.get_client_next_msg(client_id)
+                            {
+                                // hadle msg
+                            }
+                        }
+                        // Handle later:
+                        // EspResp::StaDisconnected => todo!(),
+                        // EspResp::Error => todo!(),
+                        // EspResp::Fail => todo!(),
+                        _ => {}
+                    }
+                }
+            }
         }
 
         false
@@ -616,28 +644,26 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
         if let Some(t_sent) = t_cmd_sent {
             if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
                 *t_cmd_sent = None;
-            } else {
-                if let Some(resp) = response_handler.poll() {
-                    match resp {
-                        EspResp::Ok => {
-                            *t_cmd_sent = None;
-                            return true;
-                        }
-                        EspResp::Error | EspResp::Fail => {
-                            *t_cmd_sent = None;
-                        }
-                        EspResp::StaConnected => {
-                            *sta_connected = true;
-                        }
-                        EspResp::StaGotIp => {
-                            *sta_got_ip = true;
-                        }
-                        EspResp::StaDisconnected => {
-                            *sta_connected = false;
-                            *sta_got_ip = false;
-                        }
-                        _ => {}
+            } else if let Some(resp) = response_handler.poll() {
+                match resp {
+                    EspResp::Ok => {
+                        *t_cmd_sent = None;
+                        return true;
                     }
+                    EspResp::Error | EspResp::Fail => {
+                        *t_cmd_sent = None;
+                    }
+                    EspResp::StaConnected => {
+                        *sta_connected = true;
+                    }
+                    EspResp::StaGotIp => {
+                        *sta_got_ip = true;
+                    }
+                    EspResp::StaDisconnected => {
+                        *sta_connected = false;
+                        *sta_got_ip = false;
+                    }
+                    _ => {}
                 }
             }
         } else {
@@ -647,6 +673,33 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
 
         false
     }
+    /*
+    fn send(&mut self){
+        /*
+        AT+CIPSEND=1,4
+
+        OK
+        >
+
+        busy s...
+
+        Recv 4 bytes
+
+        SEND OK
+        AT+CIPSEND=1,4
+
+        OK
+        >
+
+        busy s...
+
+        Recv 4 bytes
+
+        SEND OK
+
+         */
+    }
+     */
 
     pub fn is_ready(&self) -> bool {
         matches!(self.state, EspState::Ready)
