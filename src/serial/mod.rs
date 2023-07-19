@@ -17,7 +17,7 @@ use arduino_hal::{
 };
 use avr_device::{atmega328p::USART0, interrupt::Mutex};
 use buffer::UartBuffers;
-pub(crate) use buffer::UsartRxBuffer;
+pub(crate) use buffer::{UsartRxBuffer, RX_BUFFER_SIZE};
 use core::cell::RefCell;
 use reader::SerialReader;
 use writer::SerialWriter;
@@ -25,9 +25,11 @@ use writer::SerialWriter;
 pub(super) static MUTEX_SERIAL_RX: Mutex<RefCell<Option<SerialReader>>> =
     Mutex::new(RefCell::new(None));
 
+pub const MAX_BUFFER_SIZE: usize = 70;
+
 pub struct SerialHandler {
     serial_rx: &'static Mutex<RefCell<Option<SerialReader>>>,
-    serial_tx: SerialWriter,
+    serial_tx: SerialWriter<MAX_BUFFER_SIZE>,
     buffers: UartBuffers,
 }
 
@@ -52,15 +54,15 @@ impl SerialHandler {
         }
     }
 
-    pub fn write_bytes(&mut self, bytes: &[u8]) -> bool {
+    pub fn try_write_bytes(&mut self, bytes: &[u8]) -> bool {
         self.serial_tx.write_bytes(bytes).is_ok()
     }
 
-    pub fn write_str(&mut self, s: &str) -> bool {
+    pub fn try_write_str(&mut self, s: &str) -> bool {
         self.serial_tx.write_str(s).is_ok()
     }
 
-    pub(crate) fn write_fmt(&mut self, args: core::fmt::Arguments) -> bool {
+    pub(crate) fn try_write_fmt(&mut self, args: core::fmt::Arguments) -> bool {
         self.serial_tx.write_fmt(args).is_ok()
     }
 }

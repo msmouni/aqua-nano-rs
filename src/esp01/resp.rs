@@ -25,6 +25,7 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
     const ERROR: &'static [u8] = b"ERROR\r\n";
     const FAIL: &'static [u8] = b"FAIL\r\n";
     const STA_CONNECTED: &'static [u8] = b"WIFI CONNECTED\r\n";
+    const STA_DISCONNECTED: &'static [u8] = b"WIFI DISCONNECT\r\n";
     const STA_GOT_IP: &'static [u8] = b"WIFI GOT IP\r\n";
     const CONNECTED_CLIENT: &'static [u8] = b",CONNECT\r\n";
     const DISCONNECTED_CLIENT: &'static [u8] = b",CLOSED\r\n";
@@ -42,7 +43,7 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
         while let Some(b) = self.usart_rx_buff.try_get_byte() {
             self.resp_buff.try_push(b);
             if let Some(resp) = self.check_resp() {
-                // self.resp_buff.clear();
+                self.resp_buff.clear();
                 return Some(resp);
             }
         }
@@ -54,6 +55,7 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
         self.resp_buff.clear();
     }
 
+    // TODO: Seperate check: At each stage we know the reponse that we're expecting ...
     fn check_resp(&mut self) -> Option<EspResp> {
         let resp_buff = self.resp_buff.get_buff();
         if resp_buff.ends_with(Self::READY) {

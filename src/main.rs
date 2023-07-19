@@ -12,9 +12,9 @@ mod tools;
 
 use app::Application;
 
-use drivers::time::sys_timer::{CtcTimer, SysTimer};
-use esp01::EspRespHandler;
-use serial::SerialHandler;
+use drivers::time::sys_timer::{CtcTimer, ImplTimer, SysTimer};
+use esp01::{EspRespHandler, EspSerial, EspWifiHandler, GetTime};
+use serial::{SerialHandler, RX_BUFFER_SIZE};
 
 #[arduino_hal::entry]
 fn main() -> ! {
@@ -22,9 +22,15 @@ fn main() -> ! {
 
     let dp = arduino_hal::Peripherals::take().unwrap();
     let pins = arduino_hal::pins!(dp);
+
+    /////////////////////////////////////////////////
     let mut serial = arduino_hal::default_serial!(dp, pins, 115200);
 
-    let mut serial_h = SerialHandler::new(serial);
+    // let mut resp_h: EspRespHandler<RX_BUFFER_SIZE> = Default::default();
+
+    let mut esp_wifi: EspWifiHandler<RX_BUFFER_SIZE, SerialHandler> =
+        EspWifiHandler::new(SerialHandler::new(serial));
+    /////////////////////////////////////////////////
 
     let mut sys_timer: SysTimer<CtcTimer<16, 64, 250>> = SysTimer::new(dp.TC0);
 
@@ -35,16 +41,22 @@ fn main() -> ! {
 
     let mut led_pin = pins.d13.into_output();
 
-    let mut resp_h: EspRespHandler<40> = Default::default();
-
     loop {
         // app.update();
 
-        led_pin.set_low();
+        if !esp_wifi.is_ready() {
+            led_pin.set_low();
+        }
 
-        serial_h.write_str("AT\r\n");
+        // serial_h.write_str("AT\r\n");
 
-        sys_timer.delay_micros(3_000_000);
+        // sys_timer.delay_micros(3_000_000);
+
+        if esp_wifi.update(&sys_timer) {
+            led_pin.set_high();
+        }
+
+        sys_timer.delay_micros(1_000_000);
 
         /*
         Note:
@@ -63,7 +75,7 @@ fn main() -> ! {
          AT
         */
 
-        if let Some(_resp) = resp_h.poll() {
+        /*if let Some(_resp) = resp_h.poll() {
             led_pin.set_high();
 
             serial_h.write_str("Bytes:");
@@ -76,6 +88,26 @@ fn main() -> ! {
             resp_h.clear_buff();
         }
 
-        sys_timer.delay_micros(1_000_000);
+        sys_timer.delay_micros(1_000_000);*/
+    }
+}
+
+impl EspSerial for SerialHandler {
+    fn write_bytes(&mut self, bytes: &[u8]) -> bool {
+        self.try_write_bytes(bytes)
+    }
+
+    fn write_str(&mut self, s: &str) -> bool {
+        self.try_write_str(s)
+    }
+
+    fn write_fmt(&mut self, args: core::fmt::Arguments) -> bool {
+        self.try_write_fmt(args)
+    }
+}
+
+impl<WhichTimer: ImplTimer> GetTime for SysTimer<WhichTimer> {
+    fn now_us(&self) -> u64 {
+        self.micros()
     }
 }

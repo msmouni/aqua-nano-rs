@@ -1,4 +1,4 @@
-use super::{buffer::RX_BUFFER_SIZE, error::SerialError};
+use super::error::SerialError;
 use crate::tools::str_writer::StrWriter;
 use arduino_hal::{
     hal::port::{PD0, PD1},
@@ -12,12 +12,12 @@ use arduino_hal::{
 use avr_device::atmega328p::USART0;
 use ufmt::uWrite;
 
-pub struct SerialWriter {
+pub struct SerialWriter<const BUFF_SIZE: usize> {
     usart_tx: UsartWriter<USART0, Pin<Input, PD0>, Pin<Output, PD1>>,
-    str_writer: StrWriter<RX_BUFFER_SIZE>,
+    str_writer: StrWriter<BUFF_SIZE>,
 }
 
-impl SerialWriter {
+impl<const BUFF_SIZE: usize> SerialWriter<BUFF_SIZE> {
     pub(crate) fn new(usart_tx: UsartWriter<USART0, Pin<Input, PD0>, Pin<Output, PD1>>) -> Self {
         Self {
             usart_tx,
