@@ -13,7 +13,10 @@ mod tools;
 use app::Application;
 
 use drivers::time::sys_timer::{CtcTimer, ImplTimer, SysTimer};
-use esp01::{EspRespHandler, EspSerial, EspWifiHandler, GetTime};
+use esp01::{
+    EspApConfig, EspIp, EspIpConfig, EspRespHandler, EspSerial, EspWifiConfig, EspWifiHandler,
+    GetTime, SsidPassword, WifiEncryption,
+};
 use serial::{SerialHandler, RX_BUFFER_SIZE};
 
 #[arduino_hal::entry]
@@ -28,8 +31,40 @@ fn main() -> ! {
 
     // let mut resp_h: EspRespHandler<RX_BUFFER_SIZE> = Default::default();
 
-    let mut esp_wifi: EspWifiHandler<RX_BUFFER_SIZE, SerialHandler> =
-        EspWifiHandler::new(SerialHandler::new(serial));
+    let mut esp_wifi: EspWifiHandler<RX_BUFFER_SIZE, SerialHandler> = EspWifiHandler::new(
+        SerialHandler::new(serial),
+        EspWifiConfig::ApSta {
+            sta_config: SsidPassword {
+                ssid: "Ssid",
+                password: "password",
+            },
+            sta_ip: EspIpConfig::Static {
+                ip: EspIp {
+                    ip: "xxx.xxx.xxx.xxx",
+                    gw: "xxx.xxx.xxx.xxx",
+                    mask: "xxx.xxx.xxx.xxx",
+                },
+            },
+            ap_config: EspApConfig {
+                wifi: SsidPassword {
+                    ssid: "ap_ssid",
+                    password: "ap_pass",
+                },
+                chanel_id: 4,
+                encryption: WifiEncryption::Wpa2Psk,
+                max_sta_nb: 4,
+                hide_ssid: false,
+            },
+            ap_ip: EspIpConfig::Static {
+                ip: EspIp {
+                    ip: "xxx.xxx.xxx.xxx",
+                    gw: "xxx.xxx.xxx.xxx",
+                    mask: "xxx.xxx.xxx.xxx",
+                },
+            },
+            tcp_port: 2_000,
+        },
+    );
     /////////////////////////////////////////////////
 
     let mut sys_timer: SysTimer<CtcTimer<16, 64, 250>> = SysTimer::new(dp.TC0);

@@ -5,6 +5,7 @@ pub enum EspResp {
     Ready,
     Ok,
     StaConnected,
+    StaDisconnected,
     StaGotIp,
     ClientConnected,
     ClientDisconnected,
@@ -59,32 +60,24 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
     fn check_resp(&mut self) -> Option<EspResp> {
         let resp_buff = self.resp_buff.get_buff();
         if resp_buff.ends_with(Self::READY) {
-            // self.resp_buff[..buff.len()].copy_from_slice(buff);
-            // self.resp_buff.clear();
             Some(EspResp::Ready)
         } else if resp_buff.ends_with(Self::OK) {
-            // self.resp_buff.clear();
             Some(EspResp::Ok)
         } else if resp_buff.ends_with(Self::ERROR) {
-            // self.resp_buff.clear();
             Some(EspResp::Error)
         } else if resp_buff.ends_with(Self::FAIL) {
-            // self.resp_buff.clear();
             Some(EspResp::Fail)
         } else if resp_buff.ends_with(Self::CONNECTED_CLIENT) {
-            // self.resp_buff.clear();
             Some(EspResp::ClientConnected)
         } else if resp_buff.ends_with(Self::DISCONNECTED_CLIENT) {
-            // self.resp_buff.clear();
             Some(EspResp::ClientDisconnected)
         } else if resp_buff.starts_with(Self::CLIENT_MSG) {
-            // self.resp_buff.clear();
             Some(EspResp::ClientMsg)
         } else if resp_buff.ends_with(Self::STA_CONNECTED) {
-            // self.resp_buff.clear();
             Some(EspResp::StaConnected)
+        } else if resp_buff.ends_with(Self::STA_DISCONNECTED) {
+            Some(EspResp::StaDisconnected)
         } else if resp_buff.ends_with(Self::STA_GOT_IP) {
-            // self.resp_buff.clear();
             Some(EspResp::StaGotIp)
         } else {
             None

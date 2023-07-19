@@ -1,31 +1,42 @@
 mod cmd;
+mod ip;
 mod resp;
 mod serial;
 mod state;
 mod time;
+mod wifi;
 
+use self::cmd::EspCmd;
+pub use ip::{EspIp, EspIpConfig};
 pub use resp::{EspResp, EspRespHandler};
 pub use serial::EspSerial;
 use state::EspState;
 pub use time::GetTime;
-
-use self::cmd::RST_CMD;
+pub use wifi::{EspApConfig, EspWifiConfig, EspWifiMode, SsidPassword, WifiEncryption};
 
 const CMD_RESP_TIMEOUT_US: u64 = 10_000_000; // Note: ConfigSta for example takes more time
 
 // TODO: WifiConfig + StaIp + ApIp
-pub struct EspWifiHandler<const RESP_SZ: usize, EspSerialHandler: EspSerial> {
+pub struct EspWifiHandler<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial> {
     serial_handler: EspSerialHandler,
     response_handler: EspRespHandler<RESP_SZ>,
-    state: EspState,
+    state: EspState<'h>,
+    config: EspWifiConfig<'h>,
+    sta_connected: bool,
+    sta_got_ip: bool,
 }
 
-impl<const RESP_SZ: usize, EspSerialHandler: EspSerial> EspWifiHandler<RESP_SZ, EspSerialHandler> {
-    pub fn new(esp_serial: EspSerialHandler) -> Self {
+impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
+    EspWifiHandler<'h, RESP_SZ, EspSerialHandler>
+{
+    pub fn new(esp_serial: EspSerialHandler, config: EspWifiConfig<'h>) -> Self {
         Self {
             serial_handler: esp_serial,
             response_handler: Default::default(),
             state: EspState::Idle,
+            config,
+            sta_connected: false,
+            sta_got_ip: false,
         }
     }
 
@@ -33,9 +44,12 @@ impl<const RESP_SZ: usize, EspSerialHandler: EspSerial> EspWifiHandler<RESP_SZ, 
     pub fn update<Timer: GetTime>(&mut self, timer: &Timer) -> bool {
         match &mut self.state {
             EspState::Idle => {
-                self.state = EspState::Reset { t_cmd_sent: None };
+                self.state = EspState::Reset {
+                    t_cmd_sent: None,
+                    cmd: EspCmd::Reset,
+                };
             }
-            EspState::Reset { t_cmd_sent } => {
+            EspState::Reset { t_cmd_sent, cmd } => {
                 let t_us = timer.now_us();
 
                 if let Some(t_sent) = t_cmd_sent {
@@ -52,7 +66,10 @@ impl<const RESP_SZ: usize, EspSerialHandler: EspSerial> EspWifiHandler<RESP_SZ, 
                                 }
                                 EspResp::Ready => {
                                     // Note: When Reset the Esp-01 sends too many bytes at once, so the "OK" resp could be overwritten
-                                    self.state = EspState::ConfigWifiMode { t_cmd_sent: None };
+                                    self.state = EspState::ConfigWifiMode {
+                                        t_cmd_sent: None,
+                                        cmd: EspCmd::WifiMode(self.config.get_mode()),
+                                    };
                                     return true;
                                 }
                                 EspResp::Error | EspResp::Fail => {
@@ -63,7 +80,8 @@ impl<const RESP_SZ: usize, EspSerialHandler: EspSerial> EspWifiHandler<RESP_SZ, 
                         }
                     }
                 } else {
-                    self.serial_handler.write_bytes(RST_CMD);
+                    EspCmd::Reset.send(&mut self.serial_handler);
+                    // self.serial_handler.write_bytes(RST_CMD);
                     t_cmd_sent.replace(t_us);
                 }
             }
@@ -71,221 +89,560 @@ impl<const RESP_SZ: usize, EspSerialHandler: EspSerial> EspWifiHandler<RESP_SZ, 
                 let t_us = timer.now_us();
 
                 if t_us.wrapping_sub(*t_start_wait) > CMD_RESP_TIMEOUT_US {
-                    self.state = EspState::Reset { t_cmd_sent: None };
+                    self.state = EspState::Reset {
+                        t_cmd_sent: None,
+                        cmd: EspCmd::Reset,
+                    };
                 } else {
                     if let Some(resp) = self.response_handler.poll() {
                         match resp {
                             EspResp::Ready => {
-                                self.state = EspState::ConfigWifiMode { t_cmd_sent: None };
+                                self.state = EspState::ConfigWifiMode {
+                                    t_cmd_sent: None,
+                                    cmd: EspCmd::WifiMode(self.config.get_mode()),
+                                };
                                 return true;
                             }
                             EspResp::Error | EspResp::Fail => {
-                                self.state = EspState::Reset { t_cmd_sent: None };
+                                self.state = EspState::Reset {
+                                    t_cmd_sent: None,
+                                    cmd: EspCmd::Reset,
+                                };
                             }
                             _ => {}
                         }
                     }
                 }
             }
-            EspState::ConfigWifiMode { t_cmd_sent } => {
-                let t_us = timer.now_us();
-
-                if let Some(t_sent) = t_cmd_sent {
-                    if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
-                        *t_cmd_sent = None;
-                    } else {
-                        if let Some(resp) = self.response_handler.poll() {
-                            match resp {
-                                EspResp::Ok => {
-                                    self.state = EspState::ConfigSta { t_cmd_sent: None };
-                                    return true;
-                                }
-                                EspResp::Error | EspResp::Fail => {
-                                    *t_cmd_sent = None;
-                                }
-                                _ => {}
-                            }
+            EspState::ConfigWifiMode { t_cmd_sent, cmd } => {
+                if Self::process_cmd(
+                    &mut self.serial_handler,
+                    &mut self.response_handler,
+                    &mut self.sta_connected,
+                    &mut self.sta_got_ip,
+                    cmd,
+                    t_cmd_sent,
+                    timer,
+                ) {
+                    match &self.config {
+                        EspWifiConfig::Sta {
+                            ssid_password,
+                            ip,
+                            tcp_port,
+                        } => {
+                            self.sta_connected = false;
+                            self.sta_got_ip = false;
+                            self.state = EspState::ConfigSta {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::StaJoinAp {
+                                    ap_config: ssid_password.clone(),
+                                },
+                            };
+                        }
+                        EspWifiConfig::Ap {
+                            ap_config,
+                            ip,
+                            tcp_port,
+                        } => {
+                            self.state = EspState::ConfigAP {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::ApConfig {
+                                    config: ap_config.clone(),
+                                },
+                            };
+                        }
+                        EspWifiConfig::ApSta {
+                            sta_config,
+                            ap_config,
+                            sta_ip,
+                            ap_ip,
+                            tcp_port,
+                        } => {
+                            self.sta_connected = false;
+                            self.sta_got_ip = false;
+                            self.state = EspState::ConfigSta {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::StaJoinAp {
+                                    ap_config: sta_config.clone(),
+                                },
+                            };
                         }
                     }
-                } else {
-                    self.serial_handler.write_bytes(b"AT+CWMODE=3\r\n"); // 1 : station mode | 2 : softAP mode | 3 : softAP + station mode
-                    t_cmd_sent.replace(t_us);
+
+                    return true;
                 }
             }
-            EspState::ConfigSta { t_cmd_sent } => {
-                let t_us = timer.now_us();
-
-                if let Some(t_sent) = t_cmd_sent {
-                    if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
-                        *t_cmd_sent = None;
-                    } else {
-                        if let Some(resp) = self.response_handler.poll() {
-                            match resp {
-                                EspResp::Ok => {
-                                    self.state = EspState::ConfigAP { t_cmd_sent: None };
-                                    return true;
+            EspState::ConfigSta { t_cmd_sent, cmd } => {
+                if Self::process_cmd(
+                    &mut self.serial_handler,
+                    &mut self.response_handler,
+                    &mut self.sta_connected,
+                    &mut self.sta_got_ip,
+                    cmd,
+                    t_cmd_sent,
+                    timer,
+                ) {
+                    if self.sta_connected {
+                        match &self.config {
+                            EspWifiConfig::Sta {
+                                ssid_password,
+                                ip,
+                                tcp_port,
+                            } => match ip {
+                                EspIpConfig::Dhcp => {
+                                    if self.sta_got_ip {
+                                        self.state = EspState::EnablingMultiConx {
+                                            t_cmd_sent: None,
+                                            cmd: EspCmd::EnableMultiCnx,
+                                        };
+                                    } else {
+                                        self.state = EspState::WaitStaGotIp {
+                                            t_start_wait: timer.now_us(),
+                                        }
+                                    }
                                 }
-                                EspResp::Error | EspResp::Fail => {
-                                    *t_cmd_sent = None;
+                                EspIpConfig::Static { ip } => {
+                                    self.state = EspState::StaIp {
+                                        t_cmd_sent: None,
+                                        cmd: EspCmd::StaIpConfig {
+                                            ip_config: ip.clone(),
+                                        },
+                                    }
                                 }
-                                _ => {}
-                            }
+                            },
+                            EspWifiConfig::Ap { .. } => {}
+                            EspWifiConfig::ApSta {
+                                sta_config,
+                                sta_ip,
+                                ap_config,
+                                ap_ip,
+                                tcp_port,
+                            } => match sta_ip {
+                                EspIpConfig::Dhcp => {
+                                    if self.sta_got_ip {
+                                        self.state = EspState::ConfigAP {
+                                            t_cmd_sent: None,
+                                            cmd: EspCmd::ApConfig {
+                                                config: ap_config.clone(),
+                                            },
+                                        };
+                                    } else {
+                                        self.state = EspState::WaitStaGotIp {
+                                            t_start_wait: timer.now_us(),
+                                        }
+                                    }
+                                }
+                                EspIpConfig::Static { .. } => {
+                                    self.state = EspState::ConfigAP {
+                                        t_cmd_sent: None,
+                                        cmd: EspCmd::ApConfig {
+                                            config: ap_config.clone(),
+                                        },
+                                    };
+                                }
+                            },
                         }
+                    } else {
+                        self.state = EspState::WaitStaConnected {
+                            t_start_wait: timer.now_us(),
+                        };
                     }
-                } else {
-                    self.serial_handler.write_fmt(format_args!(
-                        "AT+CWJAP=\"{}\",\"{}\"\r\n",
-                        "SSID", "Password"
-                    ));
 
-                    // TODO: store :WIFI DISCONNECT -> WIFI CONNECTED -> WIFI GOT IP (in case we're using DHCP)
-                    // TODO: Go next after N attempts
-                    t_cmd_sent.replace(t_us);
+                    return true;
                 }
             }
-            EspState::ConfigAP { t_cmd_sent } => {
+            EspState::WaitStaConnected { t_start_wait } => {
                 let t_us = timer.now_us();
 
-                if let Some(t_sent) = t_cmd_sent {
-                    if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
-                        *t_cmd_sent = None;
-                    } else {
-                        if let Some(resp) = self.response_handler.poll() {
-                            match resp {
-                                EspResp::Ok => {
-                                    // TODO: If DHCP go to EnablingMultiConx
-                                    self.state = EspState::StaIp { t_cmd_sent: None };
-                                    return true;
-                                }
-                                EspResp::Error | EspResp::Fail => {
-                                    *t_cmd_sent = None;
-                                }
-                                _ => {}
+                if t_us.wrapping_sub(*t_start_wait) > CMD_RESP_TIMEOUT_US {
+                    match &self.config {
+                        EspWifiConfig::Sta {
+                            ssid_password,
+                            ip,
+                            tcp_port,
+                        } => {
+                            self.state = EspState::ConfigSta {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::StaJoinAp {
+                                    ap_config: ssid_password.clone(),
+                                },
+                            }
+                        }
+                        EspWifiConfig::Ap { .. } => {}
+                        EspWifiConfig::ApSta {
+                            sta_config,
+                            sta_ip,
+                            ap_config,
+                            ap_ip,
+                            tcp_port,
+                        } => {
+                            self.state = EspState::ConfigSta {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::StaJoinAp {
+                                    ap_config: sta_config.clone(),
+                                },
                             }
                         }
                     }
-                } else {
-                    self.serial_handler.write_fmt(format_args!(
-                        "AT+CWSAP=\"{}\",\"{}\",{},{}\r\n",
-                        "my_ssid", "my_password", 4, 3
-                    )); // self.ssid, self.password, self.channel, self.mode as u8, // To complete later with config
+                } else if let Some(resp) = self.response_handler.poll() {
+                    match resp {
+                        EspResp::StaConnected => {
+                            self.sta_connected = true;
 
-                    t_cmd_sent.replace(t_us);
+                            self.state = EspState::WaitStaGotIp {
+                                t_start_wait: timer.now_us(),
+                            };
+
+                            return true;
+                        }
+                        EspResp::StaGotIp => {
+                            self.sta_got_ip = true;
+                        }
+                        EspResp::Error | EspResp::Fail => {
+                            // TODO: RESET ...
+                            self.state = EspState::Reset {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::Reset,
+                            };
+                        }
+                        _ => {}
+                    }
                 }
             }
-            EspState::StaIp { t_cmd_sent } => {
+            EspState::WaitStaGotIp { t_start_wait } => {
                 let t_us = timer.now_us();
 
-                if let Some(t_sent) = t_cmd_sent {
-                    if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
-                        *t_cmd_sent = None;
-                    } else {
-                        if let Some(resp) = self.response_handler.poll() {
-                            match resp {
-                                EspResp::Ok => {
-                                    // TODO: If DHCP go to EnablingMultiConx
-                                    self.state = EspState::ApIp { t_cmd_sent: None };
-                                    return true;
-                                }
-                                EspResp::Error | EspResp::Fail => {
-                                    *t_cmd_sent = None;
-                                }
-                                _ => {}
+                if t_us.wrapping_sub(*t_start_wait) > CMD_RESP_TIMEOUT_US {
+                    match &self.config {
+                        EspWifiConfig::Sta {
+                            ssid_password,
+                            ip,
+                            tcp_port,
+                        } => {
+                            self.state = EspState::ConfigSta {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::StaJoinAp {
+                                    ap_config: ssid_password.clone(),
+                                },
+                            }
+                        }
+                        EspWifiConfig::Ap { .. } => {}
+                        EspWifiConfig::ApSta {
+                            sta_config,
+                            sta_ip,
+                            ap_config,
+                            ap_ip,
+                            tcp_port,
+                        } => {
+                            self.state = EspState::ConfigSta {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::StaJoinAp {
+                                    ap_config: sta_config.clone(),
+                                },
                             }
                         }
                     }
-                } else {
-                    self.serial_handler.write_fmt(format_args!(
-                        "AT+CIPSTA=\"{}\",\"{}\",\"{}\"\r\n",
-                        "xxx.xxx.xxx.xxx", "xxx.xxx.xxx.xxx", "255.255.255.0"
-                    )); // IP, GW, MASK
-
-                    t_cmd_sent.replace(t_us);
+                } else if let Some(resp) = self.response_handler.poll() {
+                    match resp {
+                        EspResp::StaGotIp => {
+                            self.sta_got_ip = true;
+                            match &self.config {
+                                EspWifiConfig::Sta {
+                                    ssid_password,
+                                    ip,
+                                    tcp_port,
+                                } => {
+                                    self.state = EspState::EnablingMultiConx {
+                                        t_cmd_sent: None,
+                                        cmd: EspCmd::EnableMultiCnx,
+                                    };
+                                }
+                                EspWifiConfig::Ap { .. } => {}
+                                EspWifiConfig::ApSta {
+                                    sta_config,
+                                    sta_ip,
+                                    ap_config,
+                                    ap_ip,
+                                    tcp_port,
+                                } => {
+                                    self.state = EspState::ConfigAP {
+                                        t_cmd_sent: None,
+                                        cmd: EspCmd::ApConfig {
+                                            config: ap_config.clone(),
+                                        },
+                                    };
+                                }
+                            }
+                        }
+                        EspResp::Error | EspResp::Fail => {
+                            // TODO: RESET ...
+                            self.state = EspState::Reset {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::Reset,
+                            };
+                        }
+                        _ => {}
+                    }
                 }
             }
-            EspState::ApIp { t_cmd_sent } => {
-                let t_us = timer.now_us();
-
-                if let Some(t_sent) = t_cmd_sent {
-                    if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
-                        *t_cmd_sent = None;
-                    } else {
-                        if let Some(resp) = self.response_handler.poll() {
-                            match resp {
-                                EspResp::Ok => {
-                                    self.state = EspState::EnablingMultiConx { t_cmd_sent: None };
-                                    return true;
+            EspState::ConfigAP { t_cmd_sent, cmd } => {
+                if Self::process_cmd(
+                    &mut self.serial_handler,
+                    &mut self.response_handler,
+                    &mut self.sta_connected,
+                    &mut self.sta_got_ip,
+                    cmd,
+                    t_cmd_sent,
+                    timer,
+                ) {
+                    match &self.config {
+                        EspWifiConfig::Sta {
+                            ssid_password,
+                            ip,
+                            tcp_port,
+                        } => {}
+                        EspWifiConfig::Ap {
+                            ap_config,
+                            ip,
+                            tcp_port,
+                        } => match ip {
+                            EspIpConfig::Dhcp => {
+                                self.state = EspState::EnablingMultiConx {
+                                    t_cmd_sent: None,
+                                    cmd: EspCmd::EnableMultiCnx,
                                 }
-                                EspResp::Error | EspResp::Fail => {
-                                    *t_cmd_sent = None;
-                                }
-                                _ => {}
                             }
-                        }
+                            EspIpConfig::Static { ip } => {
+                                self.state = EspState::ApIp {
+                                    t_cmd_sent: None,
+                                    cmd: EspCmd::ApIpConfig {
+                                        ip_config: ip.clone(),
+                                    },
+                                };
+                            }
+                        },
+                        EspWifiConfig::ApSta {
+                            sta_config,
+                            ap_config,
+                            sta_ip,
+                            ap_ip,
+                            tcp_port,
+                        } => match sta_ip {
+                            EspIpConfig::Dhcp => match ap_ip {
+                                EspIpConfig::Dhcp => {
+                                    self.state = EspState::EnablingMultiConx {
+                                        t_cmd_sent: None,
+                                        cmd: EspCmd::EnableMultiCnx,
+                                    }
+                                }
+                                EspIpConfig::Static { ip } => {
+                                    self.state = EspState::ApIp {
+                                        t_cmd_sent: None,
+                                        cmd: EspCmd::ApIpConfig {
+                                            ip_config: ip.clone(),
+                                        },
+                                    }
+                                }
+                            },
+                            EspIpConfig::Static { ip } => {
+                                self.state = EspState::StaIp {
+                                    t_cmd_sent: None,
+                                    cmd: EspCmd::StaIpConfig {
+                                        ip_config: ip.clone(),
+                                    },
+                                }
+                            }
+                        },
                     }
-                } else {
-                    self.serial_handler.write_fmt(format_args!(
-                        "AT+CIPAP=\"{}\",\"{}\",\"{}\"\r\n",
-                        "xxx.xxx.xxx.xxx", "xxx.xxx.xxx.xxx", "255.255.255.0"
-                    )); // IP, GW, MASK
 
-                    t_cmd_sent.replace(t_us);
+                    return true;
                 }
             }
-            EspState::EnablingMultiConx { t_cmd_sent } => {
-                let t_us = timer.now_us();
-
-                if let Some(t_sent) = t_cmd_sent {
-                    if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
-                        *t_cmd_sent = None;
-                    } else {
-                        if let Some(resp) = self.response_handler.poll() {
-                            match resp {
-                                EspResp::Ok => {
-                                    self.state = EspState::StartingTcpIpServer { t_cmd_sent: None };
-                                    return true;
-                                }
-                                EspResp::Error | EspResp::Fail => {
-                                    *t_cmd_sent = None;
-                                }
-                                _ => {}
-                            }
+            EspState::StaIp { t_cmd_sent, cmd } => {
+                if Self::process_cmd(
+                    &mut self.serial_handler,
+                    &mut self.response_handler,
+                    &mut self.sta_connected,
+                    &mut self.sta_got_ip,
+                    cmd,
+                    t_cmd_sent,
+                    timer,
+                ) {
+                    match &self.config {
+                        EspWifiConfig::Sta {
+                            ssid_password,
+                            ip,
+                            tcp_port,
+                        } => {
+                            self.state = EspState::EnablingMultiConx {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::EnableMultiCnx,
+                            };
                         }
+                        EspWifiConfig::Ap { .. } => {}
+                        EspWifiConfig::ApSta {
+                            sta_config,
+                            sta_ip,
+                            ap_config,
+                            ap_ip,
+                            tcp_port,
+                        } => match ap_ip {
+                            EspIpConfig::Dhcp => {
+                                self.state = EspState::EnablingMultiConx {
+                                    t_cmd_sent: None,
+                                    cmd: EspCmd::EnableMultiCnx,
+                                }
+                            }
+                            EspIpConfig::Static { ip } => {
+                                self.state = EspState::ApIp {
+                                    t_cmd_sent: None,
+                                    cmd: EspCmd::ApIpConfig {
+                                        ip_config: ip.clone(),
+                                    },
+                                }
+                            }
+                        },
                     }
-                } else {
-                    self.serial_handler.write_bytes(b"AT+CIPMUX=1\r\n");
-
-                    t_cmd_sent.replace(t_us);
+                    return true;
                 }
             }
-            EspState::StartingTcpIpServer { t_cmd_sent } => {
-                let t_us = timer.now_us();
-
-                if let Some(t_sent) = t_cmd_sent {
-                    if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
-                        *t_cmd_sent = None;
-                    } else {
-                        if let Some(resp) = self.response_handler.poll() {
-                            match resp {
-                                EspResp::Ok => {
-                                    self.state = EspState::Ready;
-                                    return true;
-                                }
-                                EspResp::Error | EspResp::Fail => {
-                                    *t_cmd_sent = None;
-                                }
-                                _ => {}
+            EspState::ApIp { t_cmd_sent, cmd } => {
+                if Self::process_cmd(
+                    &mut self.serial_handler,
+                    &mut self.response_handler,
+                    &mut self.sta_connected,
+                    &mut self.sta_got_ip,
+                    cmd,
+                    t_cmd_sent,
+                    timer,
+                ) {
+                    match &self.config {
+                        EspWifiConfig::Sta { .. } => {}
+                        EspWifiConfig::Ap { .. } | EspWifiConfig::ApSta { .. } => {
+                            self.state = EspState::EnablingMultiConx {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::EnableMultiCnx,
                             }
                         }
                     }
-                } else {
-                    self.serial_handler
-                        .write_fmt(format_args!("AT+CIPSERVER=1,{}\r\n", 2_000)); // Port
-
-                    t_cmd_sent.replace(t_us);
+                    return true;
+                }
+            }
+            EspState::EnablingMultiConx { t_cmd_sent, cmd } => {
+                if Self::process_cmd(
+                    &mut self.serial_handler,
+                    &mut self.response_handler,
+                    &mut self.sta_connected,
+                    &mut self.sta_got_ip,
+                    cmd,
+                    t_cmd_sent,
+                    timer,
+                ) {
+                    match &self.config {
+                        EspWifiConfig::Sta {
+                            ssid_password,
+                            ip,
+                            tcp_port,
+                        } => {
+                            self.state = EspState::StartingTcpIpServer {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::CreateTcpServer {
+                                    server_port: *tcp_port,
+                                },
+                            }
+                        }
+                        EspWifiConfig::Ap {
+                            ap_config,
+                            ip,
+                            tcp_port,
+                        } => {
+                            self.state = EspState::StartingTcpIpServer {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::CreateTcpServer {
+                                    server_port: *tcp_port,
+                                },
+                            }
+                        }
+                        EspWifiConfig::ApSta {
+                            sta_config,
+                            sta_ip,
+                            ap_config,
+                            ap_ip,
+                            tcp_port,
+                        } => {
+                            self.state = EspState::StartingTcpIpServer {
+                                t_cmd_sent: None,
+                                cmd: EspCmd::CreateTcpServer {
+                                    server_port: *tcp_port,
+                                },
+                            }
+                        }
+                    }
+                    return true;
+                }
+            }
+            EspState::StartingTcpIpServer { t_cmd_sent, cmd } => {
+                if Self::process_cmd(
+                    &mut self.serial_handler,
+                    &mut self.response_handler,
+                    &mut self.sta_connected,
+                    &mut self.sta_got_ip,
+                    cmd,
+                    t_cmd_sent,
+                    timer,
+                ) {
+                    self.state = EspState::Ready;
+                    return true;
                 }
             }
             EspState::Ready => {}
+        }
+
+        false
+    }
+
+    // To adjust later: seperate correctly ...
+    fn process_cmd<'cmd, Timer: GetTime>(
+        serial_handler: &mut EspSerialHandler,
+        response_handler: &mut EspRespHandler<RESP_SZ>,
+        sta_connected: &mut bool,
+        sta_got_ip: &mut bool,
+        cmd: &EspCmd<'cmd>,
+        t_cmd_sent: &mut Option<u64>,
+        timer: &Timer,
+    ) -> bool {
+        let t_us = timer.now_us();
+
+        if let Some(t_sent) = t_cmd_sent {
+            if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
+                *t_cmd_sent = None;
+            } else {
+                if let Some(resp) = response_handler.poll() {
+                    match resp {
+                        EspResp::Ok => {
+                            *t_cmd_sent = None;
+                            return true;
+                        }
+                        EspResp::Error | EspResp::Fail => {
+                            *t_cmd_sent = None;
+                        }
+                        EspResp::StaConnected => {
+                            *sta_connected = true;
+                        }
+                        EspResp::StaGotIp => {
+                            *sta_got_ip = true;
+                        }
+                        EspResp::StaDisconnected => {
+                            *sta_connected = false;
+                            *sta_got_ip = false;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        } else {
+            cmd.send(serial_handler);
+            t_cmd_sent.replace(t_us);
         }
 
         false
