@@ -3,4 +3,4 @@
 	url = https://github.com/Rahix/avr-hal.git
 [submodule "esp8266-at-command"]
 	path = esp8266-at-command
-	url = git@github.com:msmouni/esp8266-at-command.git
+	url = ../esp8266-at-command
