@@ -1,6 +1,5 @@
 #![allow(dead_code)]
-use arduino_hal::port::{mode::Output, Pin};
-use avr_hal_generic::port::PinOps;
+use arduino_hal::port::{mode::Output, Pin, PinOps};
 #[allow(unused_imports)]
 use micromath::F32Ext;
 
@@ -129,7 +128,7 @@ pub enum RotationAngleSpeed {
     AntiClockwise(AngleSpeed),
 }
 
-pub struct Stepper<PinIn1, PinIn2, PinIn3, PinIn4> {
+pub struct Stepper<PinIn1: PinOps, PinIn2: PinOps, PinIn3: PinOps, PinIn4: PinOps> {
     in_1: Pin<Output, PinIn1>,
     in_2: Pin<Output, PinIn2>,
     in_3: Pin<Output, PinIn3>,

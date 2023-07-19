@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-#[derive(Debug, Clone, Default, PartialEq, PartialOrd)]
-pub struct Time {
+#[derive(Debug, Clone, Default, Eq, PartialEq, PartialOrd)]
+pub struct SysTime {
     day: u32,
     hour: u32,
     minute: u32,
@@ -9,7 +9,7 @@ pub struct Time {
     milli_second: u32,
     micro_second: u32,
 }
-impl Time {
+impl SysTime {
     fn add(&mut self, other: &Self) {
         self.day += other.day;
         self.hour += other.hour;
