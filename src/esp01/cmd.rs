@@ -17,6 +17,7 @@ pub enum EspCmd<'cmd> {
     DisableMultiCnx,
     CreateTcpServer { server_port: u16 },
     DeleteTcpServer { server_port: u16 },
+    StartMsgSend { client_id: u8, msg_len: u8 },
 }
 
 impl<'cmd> EspCmd<'cmd> {
@@ -54,6 +55,9 @@ impl<'cmd> EspCmd<'cmd> {
             }
             EspCmd::DeleteTcpServer { server_port } => {
                 serial_h.write_fmt(format_args!("AT+CIPSERVER=0,{}\r\n", server_port))
+            }
+            EspCmd::StartMsgSend { client_id, msg_len } => {
+                serial_h.write_fmt(format_args!("AT+CIPSEND={},{}\r\n", client_id, msg_len))
             }
         }
     }

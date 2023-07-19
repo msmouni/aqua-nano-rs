@@ -11,7 +11,8 @@ dependencies = [
  "avr-device",
  "esp8266-at-command",
  "micromath",
- "panic-halt",
+ "nb 1.1.0",
+ "simple-clock",
  "ufmt 0.2.0",
 ]
 

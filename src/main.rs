@@ -35,20 +35,20 @@ fn main() -> ! {
         SerialHandler::new(serial),
         EspWifiConfig::ApSta {
             sta_config: SsidPassword {
-                ssid: "Ssid",
-                password: "password",
+                ssid: "Bbox-9A370343",
+                password: "QdQ3kPrVaRe6udkax9",
             },
             sta_ip: EspIpConfig::Static {
                 ip: EspIp {
-                    ip: "xxx.xxx.xxx.xxx",
-                    gw: "xxx.xxx.xxx.xxx",
-                    mask: "xxx.xxx.xxx.xxx",
+                    ip: "192.168.1.88",
+                    gw: "192.168.1.1",
+                    mask: "255.255.255.0",
                 },
             },
             ap_config: EspApConfig {
                 wifi: SsidPassword {
-                    ssid: "ap_ssid",
-                    password: "ap_pass",
+                    ssid: "test_ap_3",
+                    password: "87321654",
                 },
                 chanel_id: 4,
                 encryption: WifiEncryption::Wpa2Psk,
@@ -57,9 +57,9 @@ fn main() -> ! {
             },
             ap_ip: EspIpConfig::Static {
                 ip: EspIp {
-                    ip: "xxx.xxx.xxx.xxx",
-                    gw: "xxx.xxx.xxx.xxx",
-                    mask: "xxx.xxx.xxx.xxx",
+                    ip: "192.168.5.1",
+                    gw: "192.168.5.1",
+                    mask: "255.255.255.0",
                 },
             },
             tcp_port: 2_000,
@@ -79,9 +79,9 @@ fn main() -> ! {
     loop {
         // app.update();
 
-        if !esp_wifi.is_ready() {
-            led_pin.set_low();
-        }
+        // if !esp_wifi.is_ready() {
+        led_pin.set_low();
+        // }
 
         // serial_h.write_str("AT\r\n");
 

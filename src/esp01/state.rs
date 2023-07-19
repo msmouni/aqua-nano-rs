@@ -43,5 +43,10 @@ pub enum EspState<'cmd> {
         t_cmd_sent: Option<u64>,
         cmd: EspCmd<'cmd>,
     },
+    SendingMsg {
+        t_cmd_sent: Option<u64>,
+        cmd: EspCmd<'cmd>,
+        ready_to_send: bool,
+    },
     Ready,
 }

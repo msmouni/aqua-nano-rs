@@ -19,18 +19,19 @@ pub use wifi::{EspApConfig, EspWifiConfig, EspWifiMode, SsidPassword, WifiEncryp
 const CMD_RESP_TIMEOUT_US: u64 = 10_000_000; // Note: ConfigSta for example takes more time
 
 // TODO: WifiConfig + StaIp + ApIp
-pub struct EspWifiHandler<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial> {
+pub struct EspWifiHandler<'h, const MSG_SZ: usize, EspSerialHandler: EspSerial> {
     serial_handler: EspSerialHandler,
-    response_handler: EspRespHandler<RESP_SZ>,
+    response_handler: EspRespHandler<MSG_SZ>,
     state: EspState<'h>,
     config: EspWifiConfig<'h>,
     sta_connected: bool,
     sta_got_ip: bool,
     connected_client: ArrayVec<u8, MAX_CLIENT_NB>,
+    send_buff: [u8; MSG_SZ],
 }
 
-impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
-    EspWifiHandler<'h, RESP_SZ, EspSerialHandler>
+impl<'h, const MSG_SZ: usize, EspSerialHandler: EspSerial>
+    EspWifiHandler<'h, MSG_SZ, EspSerialHandler>
 {
     pub fn new(esp_serial: EspSerialHandler, config: EspWifiConfig<'h>) -> Self {
         Self {
@@ -41,6 +42,7 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
             sta_connected: false,
             sta_got_ip: false,
             connected_client: ArrayVec::new(),
+            send_buff: [0u8; MSG_SZ],
         }
     }
 
@@ -599,7 +601,8 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
                 if let Some(resp) = self.response_handler.poll() {
                     match resp {
                         EspResp::ClientConnected(client_id) => {
-                            self.connected_client.push(client_id)
+                            self.connected_client.push(client_id);
+                            return true;
                         }
                         EspResp::ClientDisconnected(client_id) => {
                             if let Ok(client_id) = self
@@ -608,13 +611,17 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
                             {
                                 self.connected_client.pop_at(client_id);
                             }
+                            return true;
                         }
                         EspResp::ClientMsg(client_id) => {
                             if let Some(client_msg) =
                                 self.response_handler.get_client_next_msg(client_id)
                             {
                                 // hadle msg
+                                // TMP: Echo
+                                self.send_buff_to_client(client_id, &client_msg);
                             }
+                            return true;
                         }
                         // Handle later:
                         // EspResp::StaDisconnected => todo!(),
@@ -622,6 +629,46 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
                         // EspResp::Fail => todo!(),
                         _ => {}
                     }
+                }
+            }
+            EspState::SendingMsg {
+                t_cmd_sent,
+                cmd,
+                ready_to_send,
+            } => {
+                if *ready_to_send {
+                    let t_us = timer.now_us();
+
+                    if let Some(t_sent) = t_cmd_sent {
+                        if t_us.wrapping_sub(*t_sent) > CMD_RESP_TIMEOUT_US {
+                            *t_cmd_sent = None;
+                        } else if let Some(resp) = self.response_handler.poll() {
+                            match resp {
+                                EspResp::MsgSent => {
+                                    self.state = EspState::Ready;
+                                    return true;
+                                }
+                                EspResp::Error | EspResp::Fail => {
+                                    *ready_to_send = false;
+                                }
+                                _ => {}
+                            }
+                        }
+                    } else {
+                        self.serial_handler.write_bytes(&self.send_buff);
+                        t_cmd_sent.replace(t_us);
+                    }
+                } else if Self::process_cmd(
+                    &mut self.serial_handler,
+                    &mut self.response_handler,
+                    &mut self.sta_connected,
+                    &mut self.sta_got_ip,
+                    cmd,
+                    t_cmd_sent,
+                    timer,
+                ) {
+                    *ready_to_send = true;
+                    return true;
                 }
             }
         }
@@ -632,7 +679,7 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
     // To adjust later: seperate correctly ...
     fn process_cmd<'cmd, Timer: GetTime>(
         serial_handler: &mut EspSerialHandler,
-        response_handler: &mut EspRespHandler<RESP_SZ>,
+        response_handler: &mut EspRespHandler<MSG_SZ>,
         sta_connected: &mut bool,
         sta_got_ip: &mut bool,
         cmd: &EspCmd<'cmd>,
@@ -700,6 +747,21 @@ impl<'h, const RESP_SZ: usize, EspSerialHandler: EspSerial>
          */
     }
      */
+
+    pub fn send_buff_to_client(&mut self, client_id: u8, buff: &[u8]) {
+        let buff_len = buff.len();
+
+        self.send_buff[..buff_len].copy_from_slice(buff);
+
+        self.state = EspState::SendingMsg {
+            t_cmd_sent: None,
+            cmd: EspCmd::StartMsgSend {
+                client_id,
+                msg_len: buff_len as u8,
+            },
+            ready_to_send: false,
+        }
+    }
 
     pub fn is_ready(&self) -> bool {
         matches!(self.state, EspState::Ready)
