@@ -53,9 +53,7 @@ impl<const SYS_CLK_MHZ: u32, const PRESCALER: u32, const OF_COUNT: u8> ImplTimer
         self.timer_counter.tccr0a.write(|w| w.wgm0().ctc());
 
         // OCR0 (Output Compare Register)
-        self.timer_counter
-            .ocr0a
-            .write(|w| unsafe { w.bits(OF_COUNT) });
+        self.timer_counter.ocr0a.write(|w| w.bits(OF_COUNT));
 
         // TCCR0 (Timer/Counter Control Register): CS0 (Clock Select)
         self.timer_counter.tccr0b.write(|w| match PRESCALER {

@@ -1,13 +1,17 @@
+#![allow(clippy::let_unit_value)]
+
 mod ctc;
 mod fast_pwm;
 
-use super::time::Time;
+use super::sys_time::SysTime;
 use arduino_hal::pac::TC0;
 use avr_device::interrupt::Mutex;
 use core::cell::Cell;
 pub use {ctc::CtcTimer, fast_pwm::FastPwmTimer};
 
 static OVER_FLOW_COUNTER: Mutex<Cell<u64>> = Mutex::new(Cell::new(0));
+
+// TODO: wrapping_add + wrapping_sub (u32 instead of u64)
 
 // #[derive(Clone)]
 // pub enum Prescaler {
@@ -58,10 +62,10 @@ impl<WhichTimer: ImplTimer> SysTimer<WhichTimer> {
     }
 
     #[allow(dead_code)]
-    pub fn get_time(&mut self) -> Time {
+    pub fn get_sys_time(&mut self) -> SysTime {
         let elapsed_micros = self.micros();
 
-        Time::new(elapsed_micros)
+        SysTime::new(elapsed_micros)
     }
 
     #[allow(dead_code)]

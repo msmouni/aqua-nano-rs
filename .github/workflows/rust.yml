@@ -32,4 +32,4 @@ jobs:
       # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners#administrative-privileges
       run: sudo apt install avr-libc gcc-avr pkg-config libudev-dev build-essential
     - name: Build
-      run: ./compile.sh
+      run: ./build.sh
