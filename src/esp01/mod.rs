@@ -605,11 +605,11 @@ impl<'h, const MSG_SZ: usize, EspSerialHandler: EspSerial>
                             return true;
                         }
                         EspResp::ClientDisconnected(client_id) => {
-                            if let Ok(client_id) = self
+                            if let Ok(idx_rm) = self
                                 .connected_client
                                 .binary_search_by(|clt_id| clt_id.cmp(&client_id))
                             {
-                                self.connected_client.pop_at(client_id);
+                                self.connected_client.pop_at(idx_rm);
                             }
                             return true;
                         }
@@ -619,7 +619,7 @@ impl<'h, const MSG_SZ: usize, EspSerialHandler: EspSerial>
                             {
                                 // hadle msg
                                 // TMP: Echo
-                                self.send_buff_to_client(client_id, &client_msg);
+                                self.send_buff_to_client(client_id, client_msg.get_buff_slice());
                             }
                             return true;
                         }

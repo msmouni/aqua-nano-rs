@@ -3,9 +3,20 @@ use arrayvec::ArrayVec;
 pub const MAX_CLIENT_MSGS: usize = 2;
 pub const MAX_CLIENT_NB: usize = 2;
 
+pub struct ClientMessage<const MSG_SZ: usize> {
+    msg_len: usize,
+    msg_buff: [u8; MSG_SZ],
+}
+
+impl<const MSG_SZ: usize> ClientMessage<MSG_SZ> {
+    pub fn get_buff_slice(&self) -> &[u8] {
+        &self.msg_buff[..self.msg_len]
+    }
+}
+
 pub struct ClientMessages<const MSG_SZ: usize, const MAX_MSG_NB: usize> {
     client_id: u8,
-    messages: ArrayVec<[u8; MSG_SZ], MAX_MSG_NB>,
+    messages: ArrayVec<ClientMessage<MSG_SZ>, MAX_MSG_NB>,
 }
 
 impl<const MSG_SZ: usize, const MAX_MSG_NB: usize> ClientMessages<MSG_SZ, MAX_MSG_NB> {
@@ -19,16 +30,21 @@ impl<const MSG_SZ: usize, const MAX_MSG_NB: usize> ClientMessages<MSG_SZ, MAX_MS
     pub fn add_message(&mut self, bytes: &[u8]) {
         let mut buff = [0u8; MSG_SZ];
 
-        buff[..bytes.len()].copy_from_slice(bytes);
+        let msg_len = bytes.len();
+
+        buff[..msg_len].copy_from_slice(bytes);
 
         if self.messages.is_full() {
             self.messages.pop_at(0);
         }
 
-        self.messages.push(buff)
+        self.messages.push(ClientMessage {
+            msg_len,
+            msg_buff: buff,
+        })
     }
 
-    pub fn get_next_msg(&mut self) -> Option<[u8; MSG_SZ]> {
+    pub fn get_next_msg(&mut self) -> Option<ClientMessage<MSG_SZ>> {
         self.messages.pop_at(0)
     }
 }
@@ -47,11 +63,11 @@ impl<const MSG_SZ: usize, const MAX_CL_MSG_NB: usize, const MAX_CL_NB: usize>
     }
 
     pub fn remove_client(&mut self, client_id: u8) {
-        if let Ok(client_id) = self
+        if let Ok(rm_idx) = self
             .clients_messages
             .binary_search_by(|r| r.client_id.cmp(&client_id))
         {
-            self.clients_messages.pop_at(client_id);
+            self.clients_messages.pop_at(rm_idx); // Here: panics when having two clients: the first one to connect disconnect than the other one disconnect
         }
     }
 
@@ -66,7 +82,7 @@ impl<const MSG_SZ: usize, const MAX_CL_MSG_NB: usize, const MAX_CL_NB: usize>
         }
     }
 
-    pub fn get_client_next_msg(&mut self, client_id: u8) -> Option<[u8; MSG_SZ]> {
+    pub fn get_client_next_msg(&mut self, client_id: u8) -> Option<ClientMessage<MSG_SZ>> {
         if let Ok(client_id) = self
             .clients_messages
             .binary_search_by(|r| r.client_id.cmp(&client_id))

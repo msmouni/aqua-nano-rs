@@ -1,4 +1,4 @@
-use super::clients::{ClientsMessages, MAX_CLIENT_MSGS, MAX_CLIENT_NB};
+use super::clients::{ClientMessage, ClientsMessages, MAX_CLIENT_MSGS, MAX_CLIENT_NB};
 use crate::{serial::UsartRxBuffer, tools::buffer::BufferU8};
 
 #[derive(Debug, Clone, Copy)]
@@ -33,7 +33,7 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
     const STA_GOT_IP: &'static [u8] = b"WIFI GOT IP\r\n";
     const CONNECTED_CLIENT: &'static [u8] = b",CONNECT\r\n";
     const DISCONNECTED_CLIENT: &'static [u8] = b",CLOSED\r\n";
-    const CLIENT_MSG: &'static [u8] = b"+IPD,";
+    const CLIENT_MSG: &'static [u8] = b"\r\n+IPD,";
     const MSG_SENT: &'static [u8] = b"SEND OK\r\n";
 
     pub fn get_resp_str(&self) -> Option<&str> {
@@ -123,8 +123,7 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
                             if let Some(msg_data) = msg_len_splt.next() {
                                 if let Some(msg_len_u8) = get_u8_from_slice(msg_len) {
                                     let msg_len = msg_len_u8 as usize;
-                                    // +2: b"\r\n"
-                                    if msg_data.len() == msg_len + 2 {
+                                    if msg_data.len() == msg_len {
                                         if let Some(client_id) = get_u8_from_slice(clt_id) {
                                             self.clients_msgs
                                                 .add_client_msg(client_id, &msg_data[..msg_len]);
@@ -150,7 +149,7 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
         }
     }
 
-    pub fn get_client_next_msg(&mut self, client_id: u8) -> Option<[u8; RESP_SZ]> {
+    pub fn get_client_next_msg(&mut self, client_id: u8) -> Option<ClientMessage<RESP_SZ>> {
         self.clients_msgs.get_client_next_msg(client_id)
     }
 }
