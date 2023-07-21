@@ -17,8 +17,11 @@ lto = true
 opt-level = "s"
 
 [dependencies]
-panic-halt = "0.2"
-arduino-hal={ path = "avr-hal/arduino-hal/", features = ["arduino-nano"] }
+arduino-hal= { path = "avr-hal/arduino-hal/", features = ["arduino-nano"] }
 avr-device = { version = "0.5" }
 micromath = "2.0"
-ufmt = "0.2"
+ufmt = "0.1"
+esp8266-at-command = { path= "esp8266-at-command" }
+nb = "1"
+simple-clock = "0.1"
+arrayvec = { version = "0.7", default-features = false }
