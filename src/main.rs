@@ -29,6 +29,8 @@ fn main() -> ! {
     /////////////////////////////////////////////////
     let mut serial = arduino_hal::default_serial!(dp, pins, 115200);
 
+    // core::mem::size_of::<EspWifiHandler<RX_BUFFER_SIZE, SerialHandler>>(); // size:263
+
     // let mut resp_h: EspRespHandler<RX_BUFFER_SIZE> = Default::default();
 
     let mut esp_wifi: EspWifiHandler<RX_BUFFER_SIZE, SerialHandler> = EspWifiHandler::new(
@@ -52,7 +54,7 @@ fn main() -> ! {
                 },
                 chanel_id: 4,
                 encryption: WifiEncryption::Wpa2Psk,
-                max_sta_nb: 4,
+                max_sta_nb: 4, //////////// MAX_CLIENTS
                 hide_ssid: false,
             },
             ap_ip: EspIpConfig::Static {
@@ -79,51 +81,13 @@ fn main() -> ! {
     loop {
         // app.update();
 
-        // if !esp_wifi.is_ready() {
         led_pin.set_low();
-        // }
-
-        // serial_h.write_str("AT\r\n");
-
-        // sys_timer.delay_micros(3_000_000);
 
         if esp_wifi.update(&sys_timer) {
             led_pin.set_high();
         }
 
         sys_timer.delay_micros(1_000_000);
-
-        /*
-        Note:
-         AT
-         Bytes(7):
-         ERROR
-         end
-         (7):ERROR
-
-         AT
-         Bytes(11):
-         (7):ERROR
-         end
-         (11):(7):ERROR
-
-         AT
-        */
-
-        /*if let Some(_resp) = resp_h.poll() {
-            led_pin.set_high();
-
-            serial_h.write_str("Bytes:");
-            // serial_h.write_fmt(format_args!("Bytes({}):\n", idx));
-            serial_h.write_bytes(resp_h.get_resp_buff());
-            serial_h.write_str("end\n");
-            if let Some(rs) = resp_h.get_resp_str() {
-                serial_h.write_fmt(format_args!("({}):{}\n", rs.len(), rs)); // .write_str(rs);
-            }
-            resp_h.clear_buff();
-        }
-
-        sys_timer.delay_micros(1_000_000);*/
     }
 }
 

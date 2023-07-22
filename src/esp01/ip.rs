@@ -9,13 +9,3 @@ pub enum EspIpConfig<'ip> {
     Dhcp,
     Static { ip: EspIp<'ip> },
 }
-
-// pub enum DhcpForMode {
-//     Sta,
-//     Ap,
-//     ApSta,
-// }
-
-// pub struct DhcpConfig{
-//     for_mode:
-// }

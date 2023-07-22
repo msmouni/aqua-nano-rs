@@ -25,7 +25,7 @@ use writer::SerialWriter;
 pub(super) static MUTEX_SERIAL_RX: Mutex<RefCell<Option<SerialReader>>> =
     Mutex::new(RefCell::new(None));
 
-pub const MAX_BUFFER_SIZE: usize = 70;
+pub const MAX_BUFFER_SIZE: usize = 40;
 
 pub struct SerialHandler {
     serial_rx: &'static Mutex<RefCell<Option<SerialReader>>>,

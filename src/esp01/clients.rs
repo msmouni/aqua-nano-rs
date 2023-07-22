@@ -1,7 +1,7 @@
 use arrayvec::ArrayVec;
 
-pub const MAX_CLIENT_MSGS: usize = 2;
-pub const MAX_CLIENT_NB: usize = 2;
+pub const MAX_CLIENT_MSGS: usize = 1;
+pub const MAX_CLIENT_NB: usize = 1;
 
 pub struct ClientMessage<const MSG_SZ: usize> {
     msg_len: usize,

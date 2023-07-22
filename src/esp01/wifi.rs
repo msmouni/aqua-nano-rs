@@ -62,4 +62,26 @@ impl<'cfg> EspWifiConfig<'cfg> {
             EspWifiConfig::ApSta { .. } => EspWifiMode::SoftApAndSta,
         }
     }
+
+    pub fn get_tcp_server_port(&self) -> u16 {
+        match self {
+            EspWifiConfig::Sta {
+                ssid_password,
+                ip,
+                tcp_port,
+            } => *tcp_port,
+            EspWifiConfig::Ap {
+                ap_config,
+                ip,
+                tcp_port,
+            } => *tcp_port,
+            EspWifiConfig::ApSta {
+                sta_config,
+                sta_ip,
+                ap_config,
+                ap_ip,
+                tcp_port,
+            } => *tcp_port,
+        }
+    }
 }
