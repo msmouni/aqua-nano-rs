@@ -34,23 +34,24 @@ pub enum StateEvent {
     MsgSent,
 }
 
-pub struct EspStateHandler<'h> {
-    state: EspState,
-    config: EspWifiConfig<'h>,
+// size = 184 : Config:176
+pub struct EspStateHandler {
+    state: EspState, // 3
+    // config: EspWifiConfig<'h>, // 176
     sta_connected: bool,
     sta_got_ip: bool,
 }
 
-impl<'h> EspStateHandler<'h> {
-    pub fn new(config: EspWifiConfig<'h>) -> Self {
+impl EspStateHandler {
+    pub fn new() -> Self {
         Self {
             state: EspState::Reset,
-            config,
+            // config,
             sta_connected: false,
             sta_got_ip: false,
         }
     }
-    pub fn update(&mut self, resp: &EspRespType) -> StateEvent {
+    pub fn update(&mut self, resp: &EspRespType, config: &EspWifiConfig) -> StateEvent {
         //-> StateEvent {
         match &self.state {
             EspState::Reset => {
@@ -90,7 +91,7 @@ impl<'h> EspStateHandler<'h> {
             | EspState::StaIp
             | EspState::WaitStaGotIp
             | EspState::ApIp => match &resp {
-                EspRespType::Received(EspResp::Ok) => match &self.config {
+                EspRespType::Received(EspResp::Ok) => match config {
                     EspWifiConfig::Sta {
                         ssid_password,
                         ip,
@@ -210,7 +211,7 @@ impl<'h> EspStateHandler<'h> {
                     self.sta_connected = true;
 
                     if matches!(self.state, EspState::WaitStaConnected) {
-                        match &self.config {
+                        match config {
                             EspWifiConfig::Sta {
                                 ssid_password,
                                 ip,
@@ -337,124 +338,45 @@ impl<'h> EspStateHandler<'h> {
         // false
     }
 
-    pub fn get_cmd<'cmd>(&self) -> Option<EspCmd<'cmd>>
-    where
-        'h: 'cmd,
-    {
+    pub fn get_cmd(&self, config: &EspWifiConfig) -> Option<EspCmd> {
         match &self.state {
             EspState::Reset => Some(EspCmd::Reset),
             EspState::WaitReady => None,
-            EspState::ConfigWifiMode => Some(EspCmd::WifiMode(self.config.get_mode())),
-            EspState::ConfigSta => match &self.config {
-                EspWifiConfig::Sta {
-                    ssid_password,
-                    ip,
-                    tcp_port,
-                } => Some(EspCmd::StaJoinAp {
-                    ap_config: ssid_password.clone(),
-                }),
-                EspWifiConfig::Ap {
-                    ap_config,
-                    ip,
-                    tcp_port,
-                } => None,
-                EspWifiConfig::ApSta {
-                    sta_config,
-                    sta_ip,
-                    ap_config,
-                    ap_ip,
-                    tcp_port,
-                } => Some(EspCmd::StaJoinAp {
-                    ap_config: sta_config.clone(),
-                }),
+            EspState::ConfigWifiMode => Some(EspCmd::WifiMode),
+            EspState::ConfigSta => match config {
+                EspWifiConfig::Sta { .. } | EspWifiConfig::ApSta { .. } => Some(EspCmd::StaJoinAp),
+                EspWifiConfig::Ap { .. } => None,
             },
             EspState::WaitStaConnected => None,
-            EspState::ConfigAP => match &self.config {
-                EspWifiConfig::Sta {
-                    ssid_password,
-                    ip,
-                    tcp_port,
-                } => None,
-                EspWifiConfig::Ap {
-                    ap_config,
-                    ip,
-                    tcp_port,
-                } => Some(EspCmd::ApConfig {
-                    config: ap_config.clone(),
-                }),
-                EspWifiConfig::ApSta {
-                    sta_config,
-                    sta_ip,
-                    ap_config,
-                    ap_ip,
-                    tcp_port,
-                } => Some(EspCmd::ApConfig {
-                    config: ap_config.clone(),
-                }),
+            EspState::ConfigAP => match config {
+                EspWifiConfig::Sta { .. } => None,
+                EspWifiConfig::Ap { .. } | EspWifiConfig::ApSta { .. } => Some(EspCmd::ApConfig),
             },
-            EspState::StaIp => match &self.config {
-                EspWifiConfig::Sta {
-                    ssid_password,
-                    ip,
-                    tcp_port,
-                } => match ip {
+            EspState::StaIp => match config {
+                EspWifiConfig::Sta { ip, .. } => match ip {
                     EspIpConfig::Dhcp => None,
-                    EspIpConfig::Static { ip } => Some(EspCmd::StaIpConfig {
-                        ip_config: ip.clone(),
-                    }),
+                    EspIpConfig::Static { ip } => Some(EspCmd::StaIpConfig),
                 },
-                EspWifiConfig::Ap {
-                    ap_config,
-                    ip,
-                    tcp_port,
-                } => None,
-                EspWifiConfig::ApSta {
-                    sta_config,
-                    sta_ip,
-                    ap_config,
-                    ap_ip,
-                    tcp_port,
-                } => match sta_ip {
+                EspWifiConfig::Ap { .. } => None,
+                EspWifiConfig::ApSta { sta_ip, .. } => match sta_ip {
                     EspIpConfig::Dhcp => None,
-                    EspIpConfig::Static { ip } => Some(EspCmd::StaIpConfig {
-                        ip_config: ip.clone(),
-                    }),
+                    EspIpConfig::Static { ip } => Some(EspCmd::StaIpConfig),
                 },
             },
             EspState::WaitStaGotIp => None,
-            EspState::ApIp => match &self.config {
-                EspWifiConfig::Sta {
-                    ssid_password,
-                    ip,
-                    tcp_port,
-                } => None,
-                EspWifiConfig::Ap {
-                    ap_config,
-                    ip,
-                    tcp_port,
-                } => match ip {
+            EspState::ApIp => match config {
+                EspWifiConfig::Sta { .. } => None,
+                EspWifiConfig::Ap { ip, .. } => match ip {
                     EspIpConfig::Dhcp => None,
-                    EspIpConfig::Static { ip } => Some(EspCmd::ApIpConfig {
-                        ip_config: ip.clone(),
-                    }),
+                    EspIpConfig::Static { ip } => Some(EspCmd::ApIpConfig),
                 },
-                EspWifiConfig::ApSta {
-                    sta_config,
-                    sta_ip,
-                    ap_config,
-                    ap_ip,
-                    tcp_port,
-                } => match ap_ip {
+                EspWifiConfig::ApSta { ap_ip, .. } => match ap_ip {
                     EspIpConfig::Dhcp => None,
-                    EspIpConfig::Static { ip } => Some(EspCmd::ApIpConfig {
-                        ip_config: ip.clone(),
-                    }),
+                    EspIpConfig::Static { ip } => Some(EspCmd::ApIpConfig),
                 },
             },
             EspState::EnablingMultiConx => Some(EspCmd::EnableMultiCnx),
-            EspState::StartingTcpIpServer => Some(EspCmd::CreateTcpServer {
-                server_port: self.config.get_tcp_server_port(),
-            }),
+            EspState::StartingTcpIpServer => Some(EspCmd::CreateTcpServer),
             EspState::SendingMsg {
                 client_id,
                 buff_len,
@@ -463,10 +385,7 @@ impl<'h> EspStateHandler<'h> {
         }
     }
 
-    pub fn start_msg_send_cmd<'cmd>(&mut self, client_id: u8, buff_len: u8) -> EspCmd<'cmd>
-    where
-        'h: 'cmd,
-    {
+    pub fn start_msg_send_cmd(&mut self, client_id: u8, buff_len: u8) -> EspCmd {
         self.state = EspState::SendingMsg {
             client_id,
             buff_len,

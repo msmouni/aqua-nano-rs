@@ -1,31 +1,33 @@
-use super::{clients::ClientMessage, cmd::EspCmd, EspResp, EspRespHandler, EspSerial};
+use super::{
+    clients::ClientMessage, cmd::EspCmd, EspResp, EspRespHandler, EspSerial, EspWifiConfig,
+};
 
 pub enum EspRespType {
     Received(EspResp),
     Timeout,
 }
 
-enum AtComState<'a> {
+enum AtComState {
     Idle,
     WaitForResp {
         t_start_wait: u64,
     },
     ProcessingCmd {
         t_cmd_sent: Option<u64>,
-        cmd: EspCmd<'a>,
+        cmd: EspCmd, // size = 56
     },
     WrittingMsg {
         t_msg_sent: u64,
     },
 }
 
-pub struct EspAtCom<'a, const MSG_SZ: usize, EspSerialHandler: EspSerial> {
-    serial_handler: EspSerialHandler,
-    response_handler: EspRespHandler<MSG_SZ>,
-    state: AtComState<'a>,
+pub struct EspAtCom<const MSG_SZ: usize, EspSerialHandler: EspSerial> {
+    serial_handler: EspSerialHandler,         // 64
+    response_handler: EspRespHandler<MSG_SZ>, // 56
+    state: AtComState,                        // 72
 }
 
-impl<'a, const MSG_SZ: usize, EspSerialHandler: EspSerial> EspAtCom<'a, MSG_SZ, EspSerialHandler> {
+impl<'a, const MSG_SZ: usize, EspSerialHandler: EspSerial> EspAtCom<MSG_SZ, EspSerialHandler> {
     const CMD_RESP_TIMEOUT_US: u64 = 10_000_000; // Note: ConfigSta for example takes more time
 
     pub fn new(serial_handler: EspSerialHandler) -> Self {
@@ -36,7 +38,7 @@ impl<'a, const MSG_SZ: usize, EspSerialHandler: EspSerial> EspAtCom<'a, MSG_SZ, 
         }
     }
 
-    pub fn process_cmd(&mut self, cmd: EspCmd<'a>) {
+    pub fn process_cmd(&mut self, cmd: EspCmd) {
         self.state = AtComState::ProcessingCmd {
             t_cmd_sent: None,
             cmd,
@@ -62,7 +64,7 @@ impl<'a, const MSG_SZ: usize, EspSerialHandler: EspSerial> EspAtCom<'a, MSG_SZ, 
         }
     }
 
-    pub fn update(&mut self, t_us: u64) -> Option<EspRespType> {
+    pub fn update(&mut self, t_us: u64, config: &EspWifiConfig) -> Option<EspRespType> {
         match &mut self.state {
             AtComState::Idle => None,
             AtComState::WaitForResp { t_start_wait } => {
@@ -83,7 +85,7 @@ impl<'a, const MSG_SZ: usize, EspSerialHandler: EspSerial> EspAtCom<'a, MSG_SZ, 
                         None
                     }
                 } else {
-                    cmd.send(&mut self.serial_handler);
+                    cmd.send(&mut self.serial_handler, config);
                     // self.serial_handler.write_fmt(cmd_args.clone());
 
                     t_cmd_sent.replace(t_us);
@@ -101,7 +103,7 @@ impl<'a, const MSG_SZ: usize, EspSerialHandler: EspSerial> EspAtCom<'a, MSG_SZ, 
         }
     }
 
-    pub fn get_client_next_msg(&mut self, client_id: u8) -> Option<ClientMessage<MSG_SZ>> {
-        self.response_handler.get_client_next_msg(client_id)
-    }
+    // pub fn get_client_next_msg(&mut self, client_id: u8) -> Option<ClientMessage<MSG_SZ>> {
+    //     self.response_handler.get_client_next_msg(client_id)
+    // }
 }

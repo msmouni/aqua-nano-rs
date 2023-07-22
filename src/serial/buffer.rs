@@ -25,13 +25,13 @@ impl UsartRxBuffer {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct UartBuffers {
-    rx: UsartRxBuffer,
-}
+// #[derive(Default)]
+// pub(crate) struct UartBuffers {
+//     rx: UsartRxBuffer,
+// }
 
-impl UartBuffers {
-    pub fn try_get_rx_byte(&self) -> Option<u8> {
-        self.rx.try_get_byte()
-    }
-}
+// impl UartBuffers {
+//     pub fn try_get_rx_byte(&self) -> Option<u8> {
+//         self.rx.try_get_byte()
+//     }
+// }

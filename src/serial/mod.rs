@@ -16,7 +16,7 @@ use arduino_hal::{
     Usart,
 };
 use avr_device::{atmega328p::USART0, interrupt::Mutex};
-use buffer::UartBuffers;
+// use buffer::UartBuffers;
 pub(crate) use buffer::{UsartRxBuffer, RX_BUFFER_SIZE};
 use core::cell::RefCell;
 use reader::SerialReader;
@@ -30,7 +30,7 @@ pub const MAX_BUFFER_SIZE: usize = 40;
 pub struct SerialHandler {
     serial_rx: &'static Mutex<RefCell<Option<SerialReader>>>,
     serial_tx: SerialWriter<MAX_BUFFER_SIZE>,
-    buffers: UartBuffers,
+    // buffers: UartBuffers,
 }
 
 impl SerialHandler {
@@ -49,8 +49,7 @@ impl SerialHandler {
         Self {
             serial_rx: &MUTEX_SERIAL_RX,
             serial_tx: SerialWriter::new(tx),
-
-            buffers: UartBuffers::default(),
+            // buffers: UartBuffers::default(),
         }
     }
 

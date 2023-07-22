@@ -20,7 +20,7 @@ pub enum EspResp {
 pub struct EspRespHandler<const RESP_SZ: usize> {
     resp_buff: BufferU8<RESP_SZ>,
     usart_rx_buff: UsartRxBuffer,
-    clients_msgs: ClientsMessages<RESP_SZ, MAX_CLIENT_MSGS, MAX_CLIENT_NB>,
+    // clients_msgs: ClientsMessages<RESP_SZ, MAX_CLIENT_MSGS, MAX_CLIENT_NB>,
 }
 
 impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
@@ -81,7 +81,7 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
             */
             if let Some(clt_id) = resp_buff.split(|b| *b == b',').next() {
                 if let Some(client_id) = get_u8_from_slice(clt_id) {
-                    self.clients_msgs.add_client(client_id);
+                    // self.clients_msgs.add_client(client_id);
                     Some(EspResp::ClientConnected(client_id))
                 } else {
                     None
@@ -96,7 +96,7 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
             */
             if let Some(clt_id) = resp_buff.split(|b| *b == b',').next() {
                 if let Some(client_id) = get_u8_from_slice(clt_id) {
-                    self.clients_msgs.remove_client(client_id);
+                    // self.clients_msgs.remove_client(client_id);
                     Some(EspResp::ClientDisconnected(client_id))
                 } else {
                     None
@@ -125,8 +125,8 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
                                     let msg_len = msg_len_u8 as usize;
                                     if msg_data.len() == msg_len {
                                         if let Some(client_id) = get_u8_from_slice(clt_id) {
-                                            self.clients_msgs
-                                                .add_client_msg(client_id, &msg_data[..msg_len]);
+                                            // self.clients_msgs
+                                            //     .add_client_msg(client_id, &msg_data[..msg_len]);
                                             return Some(EspResp::ClientMsg(client_id));
                                         }
                                     }
@@ -149,9 +149,9 @@ impl<const RESP_SZ: usize> EspRespHandler<RESP_SZ> {
         }
     }
 
-    pub fn get_client_next_msg(&mut self, client_id: u8) -> Option<ClientMessage<RESP_SZ>> {
-        self.clients_msgs.get_client_next_msg(client_id)
-    }
+    // pub fn get_client_next_msg(&mut self, client_id: u8) -> Option<ClientMessage<RESP_SZ>> {
+    //     self.clients_msgs.get_client_next_msg(client_id)
+    // }
 }
 
 fn get_u8_from_slice(slice: &[u8]) -> Option<u8> {

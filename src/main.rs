@@ -12,10 +12,11 @@ mod tools;
 
 use app::Application;
 
+use arrayvec::ArrayVec;
 use drivers::time::sys_timer::{CtcTimer, ImplTimer, SysTimer};
 use esp01::{
-    EspApConfig, EspIp, EspIpConfig, EspRespHandler, EspSerial, EspWifiConfig, EspWifiHandler,
-    GetTime, SsidPassword, WifiEncryption,
+    EspApConfig, EspAtCom, EspIp, EspIpConfig, EspRespHandler, EspSerial, EspStateHandler,
+    EspWifiConfig, EspWifiHandler, GetTime, SsidPassword, WifiEncryption, MAX_CLIENT_NB,
 };
 use serial::{SerialHandler, RX_BUFFER_SIZE};
 
@@ -33,8 +34,27 @@ fn main() -> ! {
 
     // let mut resp_h: EspRespHandler<RX_BUFFER_SIZE> = Default::default();
 
+    let serial_h = SerialHandler::new(serial); // 56
+
+    /*let at_com_handler: EspAtCom<RX_BUFFER_SIZE, SerialHandler>; // 136
+    /// :
+    let serial_handler: SerialHandler; //56
+    let response_handler: EspRespHandler<RX_BUFFER_SIZE>; // 56
+    /// let state: AtComState; //24
+    //////////////////////////
+    let state_handler: EspStateHandler; // 5
+    let config: EspWifiConfig; // 104
+    let connected_client: ArrayVec<u8, MAX_CLIENT_NB>; // 8
+    let send_buff: [u8; RX_BUFFER_SIZE]; //40*/
+
+    // let at_com_handler: esp01::EspAtCom<RX_BUFFER_SIZE, SerialHandler>; // 192
+    // let r: EspRespHandler<RX_BUFFER_SIZE>; //56
+
+    // let clients_msgs: esp01::ClientsMessages<RX_BUFFER_SIZE, 1, MAX_CLIENT_NB>; // 72
+
+    // 424 -> 296
     let mut esp_wifi: EspWifiHandler<RX_BUFFER_SIZE, SerialHandler> = EspWifiHandler::new(
-        SerialHandler::new(serial),
+        serial_h,
         EspWifiConfig::ApSta {
             sta_config: SsidPassword {
                 ssid: "Bbox-9A370343",
@@ -42,9 +62,9 @@ fn main() -> ! {
             },
             sta_ip: EspIpConfig::Static {
                 ip: EspIp {
-                    ip: "192.168.1.88",
-                    gw: "192.168.1.1",
-                    mask: "255.255.255.0",
+                    ip: [192, 168, 1, 88],
+                    gw: [192, 168, 1, 1],
+                    mask: [255, 255, 255, 0],
                 },
             },
             ap_config: EspApConfig {
@@ -59,9 +79,9 @@ fn main() -> ! {
             },
             ap_ip: EspIpConfig::Static {
                 ip: EspIp {
-                    ip: "192.168.5.1",
-                    gw: "192.168.5.1",
-                    mask: "255.255.255.0",
+                    ip: [192, 168, 5, 1],
+                    gw: [192, 168, 5, 1],
+                    mask: [255, 255, 255, 0],
                 },
             },
             tcp_port: 2_000,
@@ -82,6 +102,10 @@ fn main() -> ! {
         // app.update();
 
         led_pin.set_low();
+
+        // if esp_wifi.is_ready() {
+        //     led_pin.set_high();
+        // }
 
         if esp_wifi.update(&sys_timer) {
             led_pin.set_high();

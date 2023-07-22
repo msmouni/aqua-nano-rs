@@ -1,4 +1,4 @@
-use super::ip::EspIpConfig;
+use super::{ip::EspIpConfig, EspIp};
 
 #[repr(u8)]
 #[derive(Clone)]
@@ -37,19 +37,19 @@ pub struct EspApConfig<'cfg> {
 pub enum EspWifiConfig<'cfg> {
     Sta {
         ssid_password: SsidPassword<'cfg>,
-        ip: EspIpConfig<'cfg>,
+        ip: EspIpConfig,
         tcp_port: u16,
     },
     Ap {
         ap_config: EspApConfig<'cfg>,
-        ip: EspIpConfig<'cfg>,
+        ip: EspIpConfig,
         tcp_port: u16,
     },
     ApSta {
         sta_config: SsidPassword<'cfg>,
-        sta_ip: EspIpConfig<'cfg>,
+        sta_ip: EspIpConfig,
         ap_config: EspApConfig<'cfg>,
-        ap_ip: EspIpConfig<'cfg>,
+        ap_ip: EspIpConfig,
         tcp_port: u16,
     },
 }
@@ -60,6 +60,62 @@ impl<'cfg> EspWifiConfig<'cfg> {
             EspWifiConfig::Sta { .. } => EspWifiMode::Sta,
             EspWifiConfig::Ap { .. } => EspWifiMode::SoftAp,
             EspWifiConfig::ApSta { .. } => EspWifiMode::SoftApAndSta,
+        }
+    }
+
+    pub fn get_sta_wifi_config(&self) -> Option<&SsidPassword> {
+        match self {
+            EspWifiConfig::Sta { ssid_password, .. } => Some(ssid_password),
+            EspWifiConfig::Ap { .. } => None,
+            EspWifiConfig::ApSta { sta_config, .. } => Some(sta_config),
+        }
+    }
+
+    pub fn get_ap_wifi_config(&self) -> Option<&EspApConfig> {
+        match self {
+            EspWifiConfig::Sta { .. } => None,
+            EspWifiConfig::Ap { ap_config, .. } => Some(ap_config),
+            EspWifiConfig::ApSta { ap_config, .. } => Some(ap_config),
+        }
+    }
+
+    pub fn get_sta_ip(&self) -> Option<&EspIp> {
+        match self {
+            EspWifiConfig::Sta { ip, .. } => {
+                if let EspIpConfig::Static { ip } = ip {
+                    Some(ip)
+                } else {
+                    None
+                }
+            }
+            EspWifiConfig::Ap { .. } => None,
+            EspWifiConfig::ApSta { sta_ip, .. } => {
+                if let EspIpConfig::Static { ip } = sta_ip {
+                    Some(ip)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    pub fn get_ap_ip(&self) -> Option<&EspIp> {
+        match self {
+            EspWifiConfig::Sta { .. } => None,
+            EspWifiConfig::Ap { ip, .. } => {
+                if let EspIpConfig::Static { ip } = ip {
+                    Some(ip)
+                } else {
+                    None
+                }
+            }
+            EspWifiConfig::ApSta { ap_ip, .. } => {
+                if let EspIpConfig::Static { ip } = ap_ip {
+                    Some(ip)
+                } else {
+                    None
+                }
+            }
         }
     }
 
